@@ -1,0 +1,42 @@
+{
+  "name": "@geastack/vite-plugin-windows-native",
+  "version": "0.1.1",
+  "description": "Vite plugins for Windows-native Gea apps: lowers JSX over @geastack/windows/Controls classes into native control construction, records the module graph the native compiler reads, and emits an empty GEA IR for natively rendered apps.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/windows.git",
+    "directory": "packages/vite-plugin-windows-native"
+  },
+  "homepage": "https://github.com/geastack/windows/tree/main/packages/vite-plugin-windows-native#readme",
+  "bugs": {
+    "url": "https://github.com/geastack/windows/issues"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": {
+      "import": "./index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@babel/generator": "^7.23.0",
+    "@babel/parser": "^7.23.0",
+    "@babel/traverse": "^7.23.0",
+    "@babel/types": "^7.23.0"
+  },
+  "peerDependencies": {
+    "@geastack/core": "^0.1.23"
+  }
+}

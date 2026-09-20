@@ -1,0 +1,50 @@
+{
+  "name": "@geastack/geatsc-plugin-windows-native",
+  "version": "0.1.1",
+  "description": "geatsc compiler plugin that lowers @geastack/windows SDK calls to the Win32 native bridge.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/windows.git",
+    "directory": "packages/geatsc-plugin-windows-native"
+  },
+  "homepage": "https://github.com/geastack/windows/tree/main/packages/geatsc-plugin-windows-native#readme",
+  "bugs": {
+    "url": "https://github.com/geastack/windows/issues"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepublishOnly": "npm run build",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test \"test/**/*.test.mjs\""
+  },
+  "peerDependencies": {
+    "@geastack/compiler": "^1.0.15",
+    "@geastack/windows": "^0.1.0",
+    "typescript": ">=5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.9.3"
+  }
+}

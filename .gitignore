@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+
+# Target generated / arch-specific build output
+targets/*/generated/
+targets/*/generated-arm64/
+targets/*/dist-arm64/
+targets/**/build/
+
+# XcodeGen regenerates the .xcodeproj from project.yml (only project.yml is source)
+native/**/*.xcodeproj/

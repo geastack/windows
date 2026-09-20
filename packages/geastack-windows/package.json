@@ -1,0 +1,94 @@
+{
+  "name": "@geastack/windows",
+  "version": "0.1.0",
+  "description": "Generated Windows SDK bindings (Win32, User32, Kernel32, Shell32, Dwmapi, Controls) plus the Win32 desktop native build target for Gea apps.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/windows.git",
+    "directory": "packages/geastack-windows"
+  },
+  "homepage": "https://github.com/geastack/windows/tree/main/packages/geastack-windows#readme",
+  "bugs": {
+    "url": "https://github.com/geastack/windows/issues"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./Win32": {
+      "types": "./generated/Win32.d.ts",
+      "import": "./runtime/Win32.js"
+    },
+    "./User32": {
+      "types": "./generated/User32.d.ts",
+      "import": "./runtime/User32.js"
+    },
+    "./Kernel32": {
+      "types": "./generated/Kernel32.d.ts",
+      "import": "./runtime/Kernel32.js"
+    },
+    "./Shell32": {
+      "types": "./generated/Shell32.d.ts",
+      "import": "./runtime/Shell32.js"
+    },
+    "./Dwmapi": {
+      "types": "./generated/Dwmapi.d.ts",
+      "import": "./runtime/Dwmapi.js"
+    },
+    "./Controls": {
+      "types": "./generated/Controls.d.ts",
+      "import": "./runtime/Controls.js"
+    },
+    "./geatsc-plugin": {
+      "import": "./geatsc-plugin.mjs"
+    },
+    "./package.json": "./package.json",
+    "./targets/*": "./targets/*"
+  },
+  "files": [
+    "dist",
+    "generated",
+    "runtime",
+    "targets",
+    "geatsc-plugin.mjs",
+    "!targets/**/test",
+    "!targets/**/test/**",
+    "!targets/*/dist",
+    "!targets/*/generated",
+    "!targets/*/build",
+    "!targets/**/*.log"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@geastack/compiler": "^1.0.15",
+    "@geastack/core": "^0.1.23",
+    "@geastack/elements": "^0.1.2",
+    "@geastack/engine": "^0.1.5",
+    "@geastack/geaos": "^0.1.3",
+    "@geastack/geatsc-plugin-windows-native": "^0.1.1",
+    "@geastack/geatsc-plugin-gea": "^0.1.6",
+    "@geastack/host": "^0.1.8"
+  },
+  "scripts": {
+    "prepublishOnly": "npm run build",
+    "build": "tsc -p tsconfig.json && node scripts/generate.mjs",
+    "generate": "node scripts/generate.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test \"targets/win32/test/**/*.test.mjs\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.9.3"
+  }
+}

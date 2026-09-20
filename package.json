@@ -1,0 +1,15 @@
+{
+  "license": "Apache-2.0",
+  "name": "@geastack/windows-repo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "for f in $(git ls-files | grep -E '(^|/)[^/]*\\.test\\.mjs$'); do echo \"==> $f\"; node \"$f\" || exit 1; done"
+  },
+  "description": "Native Windows build target (Win32 desktop) and Windows SDK bindings for geastack apps.",
+  "dependencies": {
+    "@geastack/core": "^0.1.23",
+    "@geastack/compiler": "^1.0.15",
+    "@geastack/geatsc-plugin-gea": "^0.1.6"
+  }
+}
