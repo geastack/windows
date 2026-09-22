@@ -84,7 +84,7 @@ range, checkbox, progress; symbol glyphs; flex layout; click + press + input +
 keydown events; native scrolling and wheel routing; DPI scaling; dark mode;
 window resize; the split shell with draggable dividers and a toolbar.
 
-Real platform hooks: WinHTTP fetch, XAudio2 audio, file-backed localStorage,
+Implemented platform hooks: WinHTTP fetch, XAudio2 audio, file-backed localStorage,
 private font registration, battery status, the app launcher.
 
 Stubbed: IMU (flat), embedded memory diagnostics (zeros), BLE (no driver).

@@ -4,7 +4,7 @@ Native Windows target support for GeaStack.
 
 This repo contains the packages that let Gea applications run as native Win32
 desktop apps instead of browser views: the Win32 target (a renderer that maps
-the Gea component tree onto real child windows and common controls), generated
+the Gea component tree onto native child windows and common controls), generated
 Windows SDK bindings, and the compiler plugin that lowers calls into those
 bindings.
 
@@ -62,7 +62,7 @@ cd packages/geatsc-plugin-windows-native && npm run build
 ## How This Fits The Stack
 
 The Windows target consumes compiled Gea apps and maps Gea primitives onto
-native controls where possible, exactly as the Apple targets do for AppKit and
+native controls where possible, as the Apple targets do for AppKit and
 UIKit. This repo is the Windows platform adapter layer. It owns the native
 shell, the generated SDK binding surface, and the Windows build script.
 
@@ -80,8 +80,8 @@ shell, the generated SDK binding surface, and the Windows build script.
 
 ## License
 
-Apache-2.0 (see `LICENSE`). Use it, change it, ship closed-source products on
-it, no strings attached. The only GeaStack code under a different license is
+Apache-2.0 (see `LICENSE`). You can ship closed-source products
+built on it. The only GeaStack code under a different license is
 the embedded board support (`targets` and `@geastack/chips`, GPL-3.0-only):
 shipping closed-source firmware through those needs a commercial license.
 Contact [contact@geastack.com](mailto:contact@geastack.com) for commercial terms, support and hosted builds.

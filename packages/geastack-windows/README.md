@@ -7,12 +7,12 @@ The Windows target for GeaStack apps, in one package:
   (structs and helpers) and `Controls` (native window, stack, label, text
   field, text view, button, check box, slider, progress bar, image, scroll,
   box, split view and toolbar classes). The compiler lowers every call to a
-  thunk in the native bridge; the runtime modules here only throw, so a web
-  build that reaches one fails loudly.
+  thunk in the native bridge. The runtime modules here only throw, so a web
+  build that calls one throws at runtime.
 - **The Win32 desktop target** (`targets/win32`): `build-windows.mjs` turns
   an app into a native `.exe` with clang-cl and lld-link, and the C++ under
-  `targets/win32/main` is the renderer (a painted surface per window, real
-  child windows only for native controls and scroll containers), the
+  `targets/win32/main` is the renderer (a painted surface per window, with child
+  windows only for native controls and scroll containers), the
   glass-split shell, the platform hooks (display, timers, memory, sensors,
   WinHTTP network, storage, XAudio2 audio) and the Controls object model.
 
