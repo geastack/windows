@@ -63,10 +63,8 @@ cd packages/geatsc-plugin-windows-native && npm run build
 
 The Windows target consumes compiled Gea apps and maps Gea primitives onto
 native controls where possible, exactly as the Apple targets do for AppKit and
-UIKit. It is not the generic compiler, not the embedded hardware backend, and
-not the web target. This repo is the Windows platform adapter layer: it owns
-the native shell, the generated SDK binding surface, and the Windows build
-script.
+UIKit. This repo is the Windows platform adapter layer. It owns the native
+shell, the generated SDK binding surface, and the Windows build script.
 
 ## Maintenance Notes
 
