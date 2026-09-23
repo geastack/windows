@@ -625,6 +625,15 @@ LRESULT CALLBACK mainWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
 		EndPaint(hwnd, &paint);
 		return 0;
 	}
+	case WM_COMMAND:
+		if (lParam) {
+			HWND control = reinterpret_cast<HWND>(lParam);
+			HWND parent = GetParent(control);
+			// Reparented controls can still notify the window that created them.
+			if (parent && parent != hwnd && gea::win32::widgetFor(control) && gea::win32::widgetFor(parent))
+				return SendMessageW(parent, message, wParam, lParam);
+		}
+		break;
 	case WM_SIZE:
 		if (g_booted && wParam != SIZE_MINIMIZED) {
 			layoutNativeChrome();

@@ -393,7 +393,9 @@ void notifyCommand(Widget *parent, HWND control, WORD code)
 	case WidgetKind::TextField:
 	case WidgetKind::TextArea:
 		if (code == EN_CHANGE) {
-			widget->lastText = widgetText(widget);
+			const std::wstring text = widgetText(widget);
+			if (text == widget->lastText) break;
+			widget->lastText = text;
 			widget->style.text = widget->lastText;
 			if (widget->events.onTextChanged) widget->events.onTextChanged(widget->lastText);
 		} else if (code == EN_SETFOCUS) {
@@ -574,7 +576,16 @@ LRESULT CALLBACK widgetProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 		POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
 		const bool inside = PtInRect(&client, point) != FALSE;
 		if (widget->events.onPressUp) widget->events.onPressUp();
-		if (inside && widget->events.onClick) widget->events.onClick();
+		if (inside) {
+			for (HWND current = hwnd; current; current = GetParent(current)) {
+				Widget *target = widgetFromWindow(current);
+				if (!target) break;
+				if (target->events.onClick) {
+					target->events.onClick();
+					break;
+				}
+			}
+		}
 		return 0;
 	}
 	case WM_CAPTURECHANGED:
