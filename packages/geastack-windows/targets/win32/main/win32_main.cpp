@@ -17,6 +17,7 @@
 #include "css/engine.h"
 #include "display.h"
 #include "host/storage.h"
+#include "platform/file_cache.h"
 #include "services/storage_service.h"
 #include "ui/document.h"
 #include "ui/node.h"
@@ -584,6 +585,8 @@ void boot()
 	gea::win32::registerFontDirectory(resourcesDirectory() + L"\\Fonts");
 	gea::win32::installAppLauncherPlatform(GEA_WINDOWS_APP_ID);
 	gea::win32::storageAppId() = GEA_WINDOWS_APP_ID;
+	// Windows storage needs no mount operation.
+	gea::platform::storage::setMountProvider([]() -> bool { return true; });
 	gea::framework::services::StorageService::init();
 	// Restore persisted localStorage BEFORE Application::init: a store's
 	// init() reads it during mount.

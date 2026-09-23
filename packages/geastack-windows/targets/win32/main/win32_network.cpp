@@ -5,8 +5,8 @@
 // core's host/host/fetch.cpp has a desktop arm that calls two WEAK hooks --
 // test_record_request(url, init) then test_canned_response(url) -- and returns
 // whatever the latter produces. This file strong-overrides that seam with
-// WinHTTP, the system HTTP stack (proxy settings, TLS, redirects and
-// decompression all come from it). The seam is synchronous per call; callers
+// WinHTTP, the system HTTP stack (proxy settings, TLS, and redirects
+// come from it). The seam is synchronous per call; callers
 // are fetch workers, detached fetchAsync threads or the frame thread.
 
 #include "host/fetch.h"
@@ -63,8 +63,7 @@ HINTERNET sharedSession()
 	static HINTERNET session = [] {
 		HINTERNET created = WinHttpOpen(L"gea-windows/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
 		if (created) {
-			DWORD decompression = WINHTTP_DECOMPRESSION_FLAG_ALL;
-			WinHttpSetOption(created, WINHTTP_OPTION_DECOMPRESSION, &decompression, sizeof(decompression));
+			// WinHTTP decompression can abort successful body reads (E_ABORT).
 			DWORD protocols = WINHTTP_PROTOCOL_FLAG_HTTP2;
 			WinHttpSetOption(created, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL, &protocols, sizeof(protocols));
 		}

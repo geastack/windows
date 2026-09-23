@@ -475,7 +475,7 @@ void paintNode(const PaintContext &context, int nodeId, Color under)
 		int bitmapWidth = 0;
 		int bitmapHeight = 0;
 		if (HBITMAP bitmap = bitmapForImageId(node.image_id, &bitmapWidth, &bitmapHeight)) {
-			paintBitmap(context.hdc, bitmap, bitmapWidth, bitmapHeight, rect, node.style.image_fit);
+			paintBitmap(context.hdc, bitmap, bitmapWidth, bitmapHeight, rect, node.style.image_fit, node.style.opacity);
 		}
 		return;
 	}
