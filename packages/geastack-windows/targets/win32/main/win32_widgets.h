@@ -213,7 +213,7 @@ std::string fromWide(const std::wstring &wide);
 // GDI+ bitmap helpers for the image/canvas painters.
 HBITMAP createBgraBitmap(int width, int height, void **bits);
 // Paints a 32bpp premultiplied bitmap into `dest` according to `contentMode`.
-void paintBitmap(HDC hdc, HBITMAP bitmap, int bitmapWidth, int bitmapHeight, const RECT &dest, int contentMode);
+void paintBitmap(HDC hdc, HBITMAP bitmap, int bitmapWidth, int bitmapHeight, const RECT &dest, int contentMode, std::uint8_t opacity = 255);
 // Fills `rect` on `hdc` with `color` (alpha ignored).
 void fillRect(HDC hdc, const RECT &rect, Color color);
 // Painting primitives for a surface's overlay: a box with fill, radii and

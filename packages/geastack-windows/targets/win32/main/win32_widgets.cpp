@@ -1092,8 +1092,9 @@ HBITMAP createBgraBitmap(int width, int height, void **bits)
 	return bitmap;
 }
 
-void paintBitmap(HDC hdc, HBITMAP bitmap, int bitmapWidth, int bitmapHeight, const RECT &dest, int contentMode)
+void paintBitmap(HDC hdc, HBITMAP bitmap, int bitmapWidth, int bitmapHeight, const RECT &dest, int contentMode, std::uint8_t opacity)
 {
+	if (opacity == 0) return;
 	if (!bitmap || bitmapWidth <= 0 || bitmapHeight <= 0) return;
 	const int destWidth = static_cast<int>(dest.right - dest.left);
 	const int destHeight = static_cast<int>(dest.bottom - dest.top);
@@ -1128,7 +1129,7 @@ void paintBitmap(HDC hdc, HBITMAP bitmap, int bitmapWidth, int bitmapHeight, con
 	HGDIOBJ previous = SelectObject(source, bitmap);
 	BLENDFUNCTION blendFunction{};
 	blendFunction.BlendOp = AC_SRC_OVER;
-	blendFunction.SourceConstantAlpha = 255;
+	blendFunction.SourceConstantAlpha = opacity;
 	blendFunction.AlphaFormat = AC_SRC_ALPHA;
 	if (contentMode == 2) {
 		// Cover: clip to the destination so the overflow is cut off.
