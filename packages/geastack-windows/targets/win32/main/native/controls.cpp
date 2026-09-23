@@ -9,7 +9,7 @@
 // stack views arrange their children, anchors pin a child to its parent's
 // edges, scroll views size their document to its content.
 //
-// Layout runs once per frame from the target's frame loop (the callback
+// Layout runs on dirty frames from the target's frame loop (the callback
 // installed through setNativeLayoutCallback), starting at the root view that
 // installRootView handed over, in layout px scaled to the window's DPI.
 
@@ -268,16 +268,26 @@ HFONT fontFor(ViewPtr node, int fallbackSize = 13)
 	return gea::win32::fontForFamily(L"Segoe UI", fallbackSize);
 }
 
+void syncClickHandler(ViewPtr node)
+{
+	if (!node || !node->widget) return;
+	if (!node->onClick) {
+		node->widget->events.onClick = nullptr;
+		return;
+	}
+	node->widget->events.onClick = [node] {
+		if (node->onClick && node->onClick->handler) node->onClick->handler();
+	};
+}
+
 void ensureWidget(ViewPtr node, HWND parent)
 {
 	if (!node->widget) {
 		node->widget = gea::win32::createWidget(widgetKindFor(node->viewKind), parent);
 		if (!node->widget) return;
 		if (node->viewKind == ViewKind::Label) node->widget->clickTransparent = node->onClick == nullptr;
+		syncClickHandler(node);
 		ViewObject *self = node;
-		node->widget->events.onClick = [self] {
-			if (self->onClick && self->onClick->handler) self->onClick->handler();
-		};
 		node->widget->events.onTextChanged = [self](const std::wstring &text) {
 			self->text = text;
 			if (self->onChange && self->onChange->handler) self->onChange->handler();
@@ -672,7 +682,23 @@ void installLayout()
 {
 	if (g_layoutInstalled) return;
 	g_layoutInstalled = true;
-	gea::win32::setNativeLayoutCallback([](const RECT &area) { layoutRoot(area); });
+	gea::win32::setNativeLayoutCallback([](const RECT &area) {
+		static RECT lastArea{};
+		static double lastScale = 0;
+		const double currentScale = scale();
+		if (!g_needsLayout && EqualRect(&lastArea, &area) && currentScale == lastScale) return;
+		lastArea = area;
+		lastScale = currentScale;
+		g_needsLayout = false;
+		layoutRoot(area);
+	});
+}
+
+void showAttachedTree(ViewPtr node)
+{
+	if (!node || !node->widget) return;
+	ShowWindow(node->widget->hwnd, node->hidden ? SW_HIDE : SW_SHOWNA);
+	for (ViewPtr child : node->children) showAttachedTree(child);
 }
 
 void attach(ViewPtr parent, ViewPtr child)
@@ -688,6 +714,12 @@ void attach(ViewPtr parent, ViewPtr child)
 	if (std::find(parent->children.begin(), parent->children.end(), child) == parent->children.end()) parent->children.push_back(child);
 	HWND host = parent->widget ? (parent->viewKind == ViewKind::Scroll && parent->widget->document ? parent->widget->document : parent->widget->hwnd) : hostWindow();
 	if (parent->widget) ensureWidget(child, host);
+	for (ViewPtr ancestor = parent; ancestor; ancestor = ancestor->parent) {
+		if (ancestor == g_root) {
+			showAttachedTree(child);
+			break;
+		}
+	}
 	g_needsLayout = true;
 	gea::win32::requestFrame();
 }
@@ -922,8 +954,13 @@ bool WinView_get_hidden(WinView self) { ViewPtr node = view(self); return node ?
 void WinView_set_hidden(WinView self, bool value)
 {
 	if (ViewPtr node = view(self)) {
+		if (node->hidden == value && (!node->widget || node->widget->style.hidden == value)) return;
 		node->hidden = value;
-		if (node->widget) ShowWindow(node->widget->hwnd, value ? SW_HIDE : SW_SHOWNA);
+		if (node->widget) {
+			// Layout must not repeat the same visibility change.
+			node->widget->style.hidden = value;
+			ShowWindow(node->widget->hwnd, value ? SW_HIDE : SW_SHOWNA);
+		}
 		markDirty();
 	}
 }
@@ -1016,7 +1053,8 @@ void WinView_onClick(WinView self, WinCallback handler)
 {
 	if (ViewPtr node = view(self)) {
 		node->onClick = callback(handler);
-		if (node->widget) node->widget->clickTransparent = false;
+		syncClickHandler(node);
+		if (node->widget && node->viewKind == ViewKind::Label) node->widget->clickTransparent = node->onClick == nullptr;
 		markDirty();
 	}
 }
