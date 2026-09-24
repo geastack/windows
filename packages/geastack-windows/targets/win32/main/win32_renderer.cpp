@@ -749,6 +749,13 @@ void configureEvents(Widget *widget, int nodeId)
 			fireEvent(nodeId, gea::framework::events::PointerEventType::Input);
 		};
 		break;
+	case WidgetKind::Scroll:
+		widget->events.onScroll = [nodeId](int top) {
+			auto &tree = Tree::instance();
+			if (nodeId >= tree.nodeCount()) return;
+			tree.setScrollTop(nodeId, static_cast<int>(std::lround(top / g_scale)));
+		};
+		break;
 	default:
 		break;
 	}
@@ -966,6 +973,7 @@ bool syncWindowNode(int nodeId, const Node &node, const Materialization &materia
 	setWidgetFrame(widget, deviceX, deviceY, deviceWidth, deviceHeight);
 	applyWindowStyle(widget, nodeId, node, deviceWidth, deviceHeight, materialization);
 	if (widget->kind == WidgetKind::Scroll) {
+		setWidgetScrollTop(widget, toDevice(node.layout.scroll_y));
 		if (Widget *document = widgetFor(widget->document)) syncSurface(document, widget->document, nodeId, unseen);
 	} else if (widget->kind == WidgetKind::View) {
 		syncSurface(widget, widget->hwnd, nodeId, unseen);

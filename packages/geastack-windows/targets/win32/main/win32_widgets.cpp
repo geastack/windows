@@ -350,7 +350,7 @@ void updateScrollBars(Widget *widget)
 		const int documentWidth = std::max(widget->style.contentWidth, clientWidth);
 		const int maxTop = std::max(0, documentHeight - clientHeight);
 		if (widget->scrollTop > maxTop) widget->scrollTop = maxTop;
-		SetWindowPos(widget->document, nullptr, -widget->scrollLeft, -widget->scrollTop, documentWidth, documentHeight,
+		SetWindowPos(widget->document, nullptr, -widget->scrollLeft, widget->nodeId >= 0 ? 0 : -widget->scrollTop, documentWidth, documentHeight,
 		             SWP_NOZORDER | SWP_NOACTIVATE);
 	}
 }
@@ -968,9 +968,8 @@ void setWidgetScrollTop(Widget *widget, int scrollTop)
 	if (scrollTop == widget->scrollTop) return;
 	widget->scrollTop = scrollTop;
 	SetScrollPos(widget->hwnd, SB_VERT, scrollTop, TRUE);
-	if (widget->document) {
+	if (widget->document && widget->nodeId < 0)
 		SetWindowPos(widget->document, nullptr, -widget->scrollLeft, -scrollTop, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-	}
 	if (widget->events.onScroll) widget->events.onScroll(scrollTop);
 }
 
@@ -985,7 +984,7 @@ void setWidgetScrollLeft(Widget *widget, int scrollLeft)
 	widget->scrollLeft = scrollLeft;
 	SetScrollPos(widget->hwnd, SB_HORZ, scrollLeft, TRUE);
 	if (widget->document) {
-		SetWindowPos(widget->document, nullptr, -scrollLeft, -widget->scrollTop, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+		SetWindowPos(widget->document, nullptr, -scrollLeft, widget->nodeId >= 0 ? 0 : -widget->scrollTop, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 	}
 }
 
