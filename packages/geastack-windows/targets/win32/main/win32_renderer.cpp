@@ -531,6 +531,11 @@ void paintSurface(Widget *surface, HDC hdc)
 	context.hdc = hdc;
 	context.origin = originOf(owner);
 	context.pressedNode = state.pressedNode;
+	if (owner.type == NodeType::Canvas) {
+		RECT client{};
+		GetClientRect(surface->hwnd, &client);
+		paintCanvasNode(hdc, client, state.owner);
+	}
 	paintChildren(context, owner, effectiveBackground(surface->hwnd));
 }
 
@@ -936,8 +941,8 @@ void syncSurface(Widget *surface, HWND hwnd, int ownerId, std::unordered_set<int
 		for (const auto &entry : scope.hosted) windows.push_back(entry.second);
 		enforceChildOrder(hwnd, windows);
 	}
-	state.hasCanvas = scope.hasCanvas;
-	if (scope.hasher.hash != state.paintHash || scope.hasCanvas) {
+	state.hasCanvas = scope.hasCanvas || owner.type == NodeType::Canvas;
+	if (scope.hasher.hash != state.paintHash || state.hasCanvas) {
 		state.paintHash = scope.hasher.hash;
 		InvalidateRect(hwnd, nullptr, FALSE);
 	}
