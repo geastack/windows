@@ -25,7 +25,10 @@
 // Presses on a surface are hit-tested against the painted tree, and the
 // press sequence (touchstart, touchend, click) fires at the deepest painted
 // node under the pointer, text and symbols being transparent to it; per-node
-// listeners bound on document.body pick that up by event.target.
+// listeners bound on document.body pick that up by event.target. A press that
+// travels sideways past the slop pans the nearest overflow-x rail instead
+// (those are painted inline, not native scroll windows) and ends without a
+// click; the wheel over such a rail pans it too.
 
 #include "win32_renderer.h"
 
@@ -38,6 +41,7 @@
 #include "win32_color.h"
 #include "win32_font_registry.h"
 #include "win32_image_bridge.h"
+#include "win32_main.h"
 #include "win32_press_bridge.h"
 
 #include <algorithm>
@@ -146,7 +150,13 @@ Materialization materializationFor(int nodeId, const Node &node)
 	case NodeType::VirtualList: out.kind = WidgetKind::Scroll; break;
 	case NodeType::View:
 	default:
-		out.kind = node.style.overflow == 2 ? WidgetKind::Scroll : WidgetKind::View;
+		// A native scroll window only for a box that scrolls vertically. It is
+		// opaque (it cannot show the backdrop painted beneath it) and its
+		// horizontal bar eats client height, so a rail that only pans sideways
+		// -- overflow-x: auto with overflow-y visible/hidden -- stays a View:
+		// painted inline over the backdrop, clipped, its children placed by the
+		// engine's own scroll_x.
+		out.kind = node.style.overflow_y == 2 ? WidgetKind::Scroll : WidgetKind::View;
 		break;
 	}
 	return out;
@@ -261,15 +271,21 @@ void applyCommonStyle(WidgetStyle &style, const Node &node, int deviceWidth, int
 void applyTextStyle(WidgetStyle &style, const Node &node)
 {
 	style.font = fontForId(node.style.font_id, node.style.font_size > 0 ? node.style.font_size : 13, node.style.font_weight);
-	style.textColor = node.style.text_color != 0 || node.style.text_alpha != 0 ? colorFromStyle(node.style.text_color, 255) : Color{};
+	// The colour's own alpha rides along (`color: rgba(..., 0.68)` is how a
+	// stylesheet dims secondary text); paintText flattens it onto the
+	// background, since GDI draws text opaque. 0 keeps meaning "unset".
+	const std::uint8_t textAlpha = node.style.text_alpha != 0 ? node.style.text_alpha : 255;
+	style.textColor = node.style.text_color != 0 || node.style.text_alpha != 0 ? colorFromStyle(node.style.text_color, textAlpha) : Color{};
 	// text_color 0 is black in RGB565 as well as "unset"; the style system
 	// resolves an unset colour to the default, so treat 0 as black when the
 	// node has any explicit colour alpha.
-	if (node.style.text_color == 0) style.textColor = Color::rgb(0, 0, 0);
+	if (node.style.text_color == 0) style.textColor = Color::rgb(0, 0, 0, textAlpha);
 	style.textAlign = node.style.text_align;
 	style.textDecoration = node.style.text_decoration;
 	style.lineBreak = node.style.text_overflow == 1 ? TextLineBreak::TruncateTail : TextLineBreak::WordWrap;
 	style.maxLines = node.style.white_space == 1 ? 1 : 0;
+	// Resolved layout px (0 = normal); paintText centres each glyph run in it.
+	style.lineHeight = node.style.line_height > 0 ? static_cast<int>(std::lround(node.style.line_height * g_scale)) : 0;
 	style.opacity = node.style.opacity;
 }
 
@@ -381,6 +397,16 @@ struct SurfaceState {
 	int pressedNode = -1;
 	int focusedNode = -1;
 	bool canvasPressed = false;
+	// A press on an inline sideways rail (materializationFor keeps overflow-x
+	// rails out of native scroll windows) may turn into a drag that pans it:
+	// the rail, where the press landed, and the rail's offset at that moment.
+	// `panning` once the pointer has travelled past the slop; the press is a
+	// drag from then on, so no click fires on release.
+	int panNode = -1;
+	int panStartX = 0;
+	int panStartY = 0;
+	int panStartScroll = 0;
+	bool panning = false;
 };
 
 std::unordered_map<Widget *, SurfaceState> &surfaces()
@@ -411,7 +437,9 @@ RECT deviceRect(const Node &node, const Origin &origin)
 
 bool clipsChildren(const Node &node)
 {
-	return node.style.overflow == 1;
+	// hidden, and the auto/scroll rails painted inline (see materializationFor):
+	// their overflow is what scrolling reveals, never what shows past the box.
+	return node.style.overflow != 0;
 }
 
 std::vector<int> childrenByStacking(const Node &node)
@@ -483,26 +511,10 @@ void paintNode(const PaintContext &context, int nodeId, Color under)
 		paintCanvasNode(context.hdc, rect, nodeId);
 		return;
 	}
-	if (materialization.styledButton) {
-		// The title sits centred in the box, the way a bezel would show it.
-		WidgetStyle style;
-		style.text = toWide(buttonTitle(node));
-		applyTextStyle(style, node);
-		style.textAlign = 1;
-		style.maxLines = 1;
-		RECT text = rect;
-		text.left += 4;
-		text.right -= 4;
-		if (style.font) {
-			HGDIOBJ previous = SelectObject(context.hdc, style.font);
-			RECT measure = text;
-			DrawTextW(context.hdc, style.text.c_str(), -1, &measure, DT_CALCRECT | DT_NOPREFIX | DT_SINGLELINE);
-			SelectObject(context.hdc, previous);
-			text.top += std::max(0, (height - static_cast<int>(measure.bottom - measure.top)) / 2);
-		}
-		drawText(context.hdc, text, style, next);
-		return;
-	}
+	// A styled button's content is its children, painted where the engine laid
+	// them out (the UA sheet centres them). Flattening the descendants into one
+	// title drawn with the button's own font lost each child's size, weight and
+	// colour: a 16px label inside a 7px button painted at 7px.
 
 	const bool clip = clipsChildren(node);
 	int saved = 0;
@@ -530,7 +542,7 @@ void paintSurface(Widget *surface, HDC hdc)
 	PaintContext context;
 	context.hdc = hdc;
 	context.origin = originOf(owner);
-	context.pressedNode = state.pressedNode;
+	context.pressedNode = state.panning ? -1 : state.pressedNode;  // a drag is no longer a press
 	if (owner.type == NodeType::Canvas) {
 		RECT client{};
 		GetClientRect(surface->hwnd, &client);
@@ -579,6 +591,21 @@ int hitTestSurface(const SurfaceState &state, POINT point)
 	return owner.style.pointer_events == 1 ? -1 : state.owner;
 }
 
+// The nearest node from `nodeId` up to the surface owner that scrolls
+// sideways and has content to reveal, or -1. Stops at a native scroll window:
+// that one pans itself, with its own bar and wheel.
+int sidewaysRailFor(const SurfaceState &state, int nodeId)
+{
+	Tree &tree = Tree::instance();
+	for (int id = nodeId; id >= 0 && id < tree.nodeCount(); id = tree.node(id).parent) {
+		const Node &node = tree.node(id);
+		if (materializationFor(id, node).kind == WidgetKind::Scroll) return -1;
+		if (node.style.overflow_x == 2 && node.layout.scroll_content_width > node.layout.width) return id;
+		if (id == state.owner) break;
+	}
+	return -1;
+}
+
 void surfacePointer(Widget *surface, int phase, int x, int y)
 {
 	auto it = surfaces().find(surface);
@@ -595,8 +622,14 @@ void surfacePointer(Widget *surface, int phase, int x, int y)
 	switch (phase) {
 	case 1: {
 		const int target = hitTestSurface(state, point);
+		if (std::getenv("GEA_WINDOWS_POINTER_DEBUG")) {
+			std::fprintf(stderr, "[gea-pointer] down at (%d,%d) -> node %d tag=%s class=%s\n", x, y, target,
+			             target >= 0 ? tree.tagName(target) : "", target >= 0 ? tree.getAttribute(target, "class") : "");
+		}
 		state.pressedNode = target;
 		state.focusedNode = target;
+		state.panning = false;
+		state.panNode = -1;
 		if (target < 0) return;
 		if (tree.node(target).type == NodeType::Canvas) {
 			state.canvasPressed = true;
@@ -604,6 +637,10 @@ void surfacePointer(Widget *surface, int phase, int x, int y)
 			canvasPointer(target, rect, 1, x - rect.left, y - rect.top);
 			return;
 		}
+		state.panNode = sidewaysRailFor(state, target);
+		state.panStartX = x;
+		state.panStartY = y;
+		state.panStartScroll = tree.scrollLeft(state.panNode);
 		fireEvent(target, gea::framework::events::PointerEventType::TouchStart);
 		if (isStyledButton(target)) InvalidateRect(surface->hwnd, nullptr, FALSE);
 		return;
@@ -612,12 +649,37 @@ void surfacePointer(Widget *surface, int phase, int x, int y)
 		if (state.canvasPressed && state.pressedNode >= 0 && state.pressedNode < tree.nodeCount()) {
 			const RECT rect = rectOf(state.pressedNode);
 			canvasPointer(state.pressedNode, rect, 2, x - rect.left, y - rect.top);
+			return;
+		}
+		if (state.panNode < 0 || state.panNode >= tree.nodeCount()) return;
+		const int dx = x - state.panStartX;
+		const int dy = y - state.panStartY;
+		if (!state.panning) {
+			// A press that wanders a little is still a click; a mostly sideways
+			// travel past the slop is a drag of the rail.
+			const int slop = std::max(4, toDevice(6));
+			if (std::abs(dx) < slop || std::abs(dx) < std::abs(dy)) return;
+			state.panning = true;
+			if (std::getenv("GEA_WINDOWS_POINTER_DEBUG")) {
+				std::fprintf(stderr, "[gea-pan] rail %d from scroll %d\n", state.panNode, state.panStartScroll);
+			}
+			// The press became a drag: the pressed look goes now, the click never fires.
+			if (isStyledButton(state.pressedNode)) InvalidateRect(surface->hwnd, nullptr, FALSE);
+		}
+		// The rail follows the pointer; setScrollLeft clamps to its range.
+		const int next = state.panStartScroll - static_cast<int>(std::lround(dx / g_scale));
+		if (next != tree.scrollLeft(state.panNode)) {
+			tree.setScrollLeft(state.panNode, next);
+			gea::win32::requestFrame();
 		}
 		return;
 	}
 	default: {
 		const int pressed = state.pressedNode;
+		const bool panned = state.panning;
 		state.pressedNode = -1;
+		state.panNode = -1;
+		state.panning = false;
 		if (pressed < 0 || pressed >= tree.nodeCount()) {
 			state.canvasPressed = false;
 			return;
@@ -631,7 +693,12 @@ void surfacePointer(Widget *surface, int phase, int x, int y)
 		fireEvent(pressed, gea::framework::events::PointerEventType::TouchEnd);
 		if (phase == 3) {
 			RECT rect = rectOf(pressed);
-			if (PtInRect(&rect, point)) fireEvent(pressed, gea::framework::events::PointerEventType::Click);
+			const bool clicked = !panned && PtInRect(&rect, point) != FALSE;
+			if (std::getenv("GEA_WINDOWS_POINTER_DEBUG")) {
+				std::fprintf(stderr, "[gea-pointer] up at (%d,%d) node %d rect=(%ld,%ld,%ld,%ld) panned=%d click=%d\n", x, y, pressed, rect.left,
+				             rect.top, rect.right, rect.bottom, panned ? 1 : 0, clicked ? 1 : 0);
+			}
+			if (clicked) fireEvent(pressed, gea::framework::events::PointerEventType::Click);
 		}
 		if (isStyledButton(pressed)) InvalidateRect(surface->hwnd, nullptr, FALSE);
 		return;
@@ -645,6 +712,31 @@ void surfaceKey(Widget *surface, int keyCode)
 	if (it == surfaces().end()) return;
 	const SurfaceState &state = it->second;
 	fireEvent(state.focusedNode >= 0 ? state.focusedNode : state.owner, gea::framework::events::PointerEventType::KeyDown, keyCode);
+}
+
+// A wheel over the surface pans the nearest sideways rail under the cursor.
+// Those rails are painted inline (materializationFor keeps them out of native
+// scroll windows), so they have no bar of their own: the wheel here and the
+// drag in surfacePointer are their desktop input.
+void surfaceWheel(Widget *surface, int x, int y, int deltaX, int deltaY)
+{
+	auto it = surfaces().find(surface);
+	if (it == surfaces().end()) return;
+	const SurfaceState &state = it->second;
+	Tree &tree = Tree::instance();
+	if (state.owner < 0 || state.owner >= tree.nodeCount()) return;
+	// A vertical wheel has nothing vertical left to move here -- a box that
+	// scrolls vertically owns a native window and took the message -- so it
+	// pans sideways as well; up is left.
+	const int delta = deltaX != 0 ? deltaX : -deltaY;
+	if (delta == 0) return;
+	int target = hitTestSurface(state, POINT{x, y});
+	if (target < 0) target = state.owner;
+	const int rail = sidewaysRailFor(state, target);
+	if (rail < 0) return;
+	const int step = delta * 60 / WHEEL_DELTA;  // layout px per notch
+	tree.setScrollLeft(rail, tree.scrollLeft(rail) + step);
+	gea::win32::requestFrame();
 }
 
 // --- paint signature -----------------------------------------------------------------
@@ -932,6 +1024,7 @@ void syncSurface(Widget *surface, HWND hwnd, int ownerId, std::unordered_set<int
 		state.owner = ownerId;
 		surface->events.onPaintOverlay = [surface](HDC hdc, const RECT &) { paintSurface(surface, hdc); };
 		surface->events.onSurfacePointer = [surface](int phase, int x, int y) { surfacePointer(surface, phase, x, y); };
+		surface->events.onSurfaceWheel = [surface](int x, int y, int deltaX, int deltaY) { surfaceWheel(surface, x, y, deltaX, deltaY); };
 		surface->events.onKeyDown = [surface](int keyCode) { surfaceKey(surface, keyCode); };
 		surface->focusable = true;
 		InvalidateRect(hwnd, nullptr, FALSE);
