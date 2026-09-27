@@ -93,6 +93,7 @@ struct WidgetStyle {
 	int textDecoration = 0;     // 0 none, 1 underline, 2 line-through
 	TextLineBreak lineBreak = TextLineBreak::WordWrap;
 	int maxLines = 0;           // 0 = unlimited
+	int lineHeight = 0;         // CSS line-height, device px (0 = the font's natural line)
 	bool symbol = false;        // one icon glyph, centred on its ink rather than its line box
 	bool editable = true;
 	bool bordered = false;      // native control frame for edits
@@ -133,6 +134,9 @@ struct WidgetEvents {
 	// against the painted tree (phase 1 down, 2 move, 3 up, 4 cancelled).
 	std::function<void(HDC, const RECT &)> onPaintOverlay;
 	std::function<void(int phase, int x, int y)> onSurfacePointer;
+	// A wheel no native scroll window consumed, at surface client px with the
+	// raw WHEEL_DELTA units (x right, y away from the user).
+	std::function<void(int x, int y, int deltaX, int deltaY)> onSurfaceWheel;
 	std::function<void()> onPressDown;
 	std::function<void()> onPressUp;
 	std::function<void()> onClick;
