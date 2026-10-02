@@ -354,4 +354,8 @@ void AudioSystem::stopPlayback() {
   for (auto &kv : e.oscillators) stopOscVoice(kv.second);
 }
 
+// No PCM stream output is queued by this backend (only the ESP32 runtime
+// streams PCM), so a flush has nothing to discard.
+void AudioSystem::flushPlayback() {}
+
 }  // namespace gea::platform::audio
