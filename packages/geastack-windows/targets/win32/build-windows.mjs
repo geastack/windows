@@ -22,7 +22,7 @@
 // app's own folder. Environment:
 // GEA_EXTRA_GEATSC_PLUGINS (path-delimited compiler plugins), GEA_CLI_BIN,
 // GEA_GEATSC_BIN, GEA_WINDOWS_CLANG_CL, GEA_WINDOWS_LLD_LINK, GEA_WINDOWS_JOBS,
-// GEA_WINDOWS_OPT (/O2), GEA_CPP_TRANSLATION_UNITS (balanced).
+// GEA_WINDOWS_OPT (/O2). Translation-unit layout comes from package.json.
 
 import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
@@ -288,8 +288,10 @@ if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
     newestMtime(path.join(geaCompiler, 'dist'), (name) => name.endsWith('.js')),
     newestMtime(path.join(packageRoot, 'dist'), (name) => name.endsWith('.js')),
   )
-  const translationUnits = process.env.GEA_CPP_TRANSLATION_UNITS ?? 'balanced'
-  const signature = JSON.stringify({ windowsNative, extraPlugins, translationUnits, entry: appEntry, geatsc: process.env.GEA_GEATSC_BIN ?? '' })
+  const buildConfigPath = process.env.GEA_BUILD_CONFIG_JSON
+  const buildConfig = buildConfigPath ? JSON.parse(fs.readFileSync(buildConfigPath, 'utf8')) : { settings: { compiler: { translationUnits: 'balanced' } } }
+  const translationUnits = buildConfig.settings.compiler?.translationUnits ?? 'balanced'
+  const signature = JSON.stringify({ windowsNative, extraPlugins, buildConfig, translationUnits, entry: appEntry, geatsc: process.env.GEA_GEATSC_BIN ?? '' })
   const stampTime = fs.existsSync(stamp) ? fs.statSync(stamp).mtimeMs : 0
   const fresh =
     fs.existsSync(sourceList) && stampTime >= inputsNewest && fs.existsSync(signaturePath) && fs.readFileSync(signaturePath, 'utf8') === signature
@@ -311,7 +313,9 @@ if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
       '--no-apple-native',
     ]
     for (const plugin of extraPlugins) generateArgs.push('--extra-geatsc-plugin', plugin)
-    const generateEnv = { ...frameworkEnv, GEA_CPP_TRANSLATION_UNITS: translationUnits }
+    const generateEnv = { ...frameworkEnv }
+    if (buildConfigPath) generateArgs.push('--build-config', buildConfigPath)
+    else generateArgs.push('--translation-units', translationUnits)
     if (windowsNative) {
       // The bridge metadata the compiler plugin reads: the SDK fixture as
       // bridge metadata, written beside the generated program.

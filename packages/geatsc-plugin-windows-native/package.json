@@ -1,6 +1,6 @@
 {
   "name": "@geastack/geatsc-plugin-windows-native",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "geatsc compiler plugin that lowers @geastack/windows SDK calls to the Win32 native bridge.",
   "license": "Apache-2.0",
   "repository": {
@@ -40,11 +40,12 @@
   },
   "peerDependencies": {
     "@geastack/compiler": "^1.0.15",
-    "@geastack/windows": "^0.1.0",
-    "typescript": ">=5.0"
+    "@geastack/windows": "^0.1.0"
+  },
+  "dependencies": {
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@types/node": "^22.15.3",
-    "typescript": "^5.9.3"
+    "@types/node": "^22.15.3"
   }
 }
