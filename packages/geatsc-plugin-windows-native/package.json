@@ -39,8 +39,8 @@
     "test": "node --test \"test/**/*.test.mjs\""
   },
   "peerDependencies": {
-    "@geastack/compiler": "^1.0.15",
-    "@geastack/windows": "^0.1.0"
+    "@geastack/compiler": "^1.0.21",
+    "@geastack/windows": "^0.1.1"
   },
   "dependencies": {
     "typescript": "^5.9.3"

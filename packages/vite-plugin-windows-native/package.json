@@ -37,6 +37,6 @@
     "@babel/types": "^7.23.0"
   },
   "peerDependencies": {
-    "@geastack/core": "^0.1.23"
+    "@geastack/core": "^0.1.35"
   }
 }
