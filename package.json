@@ -8,8 +8,8 @@
   },
   "description": "Native Windows build target (Win32 desktop) and Windows SDK bindings for geastack apps.",
   "dependencies": {
-    "@geastack/core": "^0.1.35",
-    "@geastack/compiler": "^1.0.21",
-    "@geastack/geatsc-plugin-gea": "^0.1.17"
+    "@geastack/core": "^0.1.37",
+    "@geastack/compiler": "^1.0.22",
+    "@geastack/geatsc-plugin-gea": "^0.1.19"
   }
 }
