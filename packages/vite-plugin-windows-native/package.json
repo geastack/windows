@@ -1,6 +1,6 @@
 {
   "name": "@geastack/vite-plugin-windows-native",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Vite plugins for Windows-native Gea apps: lowers JSX over @geastack/windows/Controls classes into native control construction, records the module graph the native compiler reads, and emits an empty GEA IR for natively rendered apps.",
   "license": "Apache-2.0",
   "repository": {

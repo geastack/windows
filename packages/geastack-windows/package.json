@@ -76,7 +76,7 @@
     "@geastack/elements": "^0.1.5",
     "@geastack/engine": "^0.1.13",
     "@geastack/geaos": "^0.1.3",
-    "@geastack/geatsc-plugin-windows-native": "^0.1.2",
+    "@geastack/geatsc-plugin-windows-native": "^0.1.3",
     "@geastack/geatsc-plugin-gea": "^0.1.19",
     "@geastack/host": "^0.1.14"
   },
