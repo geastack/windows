@@ -1,6 +1,6 @@
 {
   "name": "@geastack/windows",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Generated Windows SDK bindings (Win32, User32, Kernel32, Shell32, Dwmapi, Controls) plus the Win32 desktop native build target for Gea apps.",
   "license": "Apache-2.0",
   "repository": {
