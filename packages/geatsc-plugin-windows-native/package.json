@@ -40,7 +40,7 @@
   },
   "peerDependencies": {
     "@geastack/compiler": "^1.0.22",
-    "@geastack/windows": "^0.1.1"
+    "@geastack/windows": "^0.1.2"
   },
   "dependencies": {
     "typescript": "^5.9.3"
