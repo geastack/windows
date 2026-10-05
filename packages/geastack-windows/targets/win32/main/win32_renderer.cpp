@@ -1001,13 +1001,11 @@ void syncPaintedNode(SyncScope &scope, int nodeId, std::unordered_set<int> &unse
 	}
 	if (node.style.display == gea::embedded::ui::kDisplayNone) return;
 	if (node.type == NodeType::Canvas) scope.hasCanvas = true;
-	if (node.type == NodeType::Button) {
-		// A styled button paints its title from its descendants; they are
-		// not laid out as separate boxes.
-		const std::string title = buttonTitle(node);
-		scope.hasher.bytes(title.data(), title.size());
-		return;
-	}
+	// A styled button's children are boxes of their own (paintNode draws each
+	// with its own style), so they join the hash like any other box. Hashing
+	// only their joined text missed a child's colour, weight, size or layout
+	// changing while the words stayed the same, and the surface kept showing
+	// the old chip. A native button owns a window and returned above.
 	for (int child = node.first_child; child >= 0; child = tree.node(child).next_sibling) syncPaintedNode(scope, child, unseen);
 }
 
