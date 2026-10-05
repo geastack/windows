@@ -75,6 +75,12 @@ namespace {
 
 using gea::win32::Color;
 
+// gea.designWidth from the app manifest, baked in by build-windows.mjs; 0 when
+// the app declares none.
+#ifndef GEA_WINDOWS_DESIGN_WIDTH
+#define GEA_WINDOWS_DESIGN_WIDTH 0
+#endif
+
 const wchar_t *const kMainClass = L"GeaMainWindow";
 
 struct WindowConfig {
@@ -95,6 +101,10 @@ std::unique_ptr<gea::win32::GlassSplitShell> g_shell;
 HWND g_nativeRoot = nullptr;
 gea::win32::Toolbar *g_nativeToolbar = nullptr;
 std::function<void(const RECT &)> g_nativeLayout;
+// Monitor DPI / 96: sizes the window chrome (initial frame, minimum size).
+double g_dpiScale = 1.0;
+// CSS px -> device px for the engine and its widgets. Equal to g_dpiScale
+// unless the app declares a designWidth (see updateScale).
 double g_scale = 1.0;
 bool g_frameRequested = false;
 bool g_running = true;
@@ -371,10 +381,23 @@ void updateFrameInterval()
 	g_frameIntervalUs = std::max(1000, 1000000 / std::clamp(hz, 24, 240));
 }
 
+RECT clientRect();
+
 void updateScale()
 {
 	const UINT dpi = g_window ? GetDpiForWindow(g_window) : 96;
-	g_scale = dpi > 0 ? dpi / 96.0 : 1.0;
+	g_dpiScale = dpi > 0 ? dpi / 96.0 : 1.0;
+	double scale = g_dpiScale;
+	// An app that declares gea.designWidth authored its stylesheet for that
+	// many CSS px across. The client area maps onto exactly that width, so the
+	// layout scales with the window instead of gaining room -- the manifest's
+	// normalizeDesignWidth spells it out as dpr = viewportWidth / designWidth.
+	if (GEA_WINDOWS_DESIGN_WIDTH > 0 && g_window) {
+		const RECT client = clientRect();
+		const int width = client.right - client.left;
+		if (width > 0) scale = static_cast<double>(width) / GEA_WINDOWS_DESIGN_WIDTH;
+	}
+	g_scale = scale;
 	gea::win32::Renderer::instance().setScale(g_scale);
 }
 
@@ -635,14 +658,18 @@ LRESULT CALLBACK mainWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
 		}
 		break;
 	case WM_SIZE:
-		if (g_booted && wParam != SIZE_MINIMIZED) {
-			layoutNativeChrome();
-			tick();
+		if (wParam != SIZE_MINIMIZED) {
+			// Under a designWidth the engine scale follows the client width.
+			updateScale();
+			if (g_booted) {
+				layoutNativeChrome();
+				tick();
+			}
 		}
 		return 0;
 	case WM_GETMINMAXINFO: {
 		auto *info = reinterpret_cast<MINMAXINFO *>(lParam);
-		RECT frame{0, 0, static_cast<int>(std::lround(g_config.minWidth * g_scale)), static_cast<int>(std::lround(g_config.minHeight * g_scale))};
+		RECT frame{0, 0, static_cast<int>(std::lround(g_config.minWidth * g_dpiScale)), static_cast<int>(std::lround(g_config.minHeight * g_dpiScale))};
 		AdjustWindowRectExForDpi(&frame, static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_STYLE)), FALSE, 0, GetDpiForWindow(hwnd));
 		info->ptMinTrackSize.x = frame.right - frame.left;
 		info->ptMinTrackSize.y = frame.bottom - frame.top;
@@ -690,7 +717,7 @@ double windowScale() { return g_scale; }
 void resizeMainWindowClient(int width, int height)
 {
 	if (!g_window) return;
-	RECT frame{0, 0, static_cast<int>(std::lround(width * g_scale)), static_cast<int>(std::lround(height * g_scale))};
+	RECT frame{0, 0, static_cast<int>(std::lround(width * g_dpiScale)), static_cast<int>(std::lround(height * g_dpiScale))};
 	AdjustWindowRectExForDpi(&frame, static_cast<DWORD>(GetWindowLongPtrW(g_window, GWL_STYLE)), FALSE, 0, GetDpiForWindow(g_window));
 	SetWindowPos(g_window, nullptr, 0, 0, frame.right - frame.left, frame.bottom - frame.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
@@ -798,8 +825,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 	if (const char *e = std::getenv("GEA_WINDOWS_WIN_W")) width = std::atoi(e);
 	if (const char *e = std::getenv("GEA_WINDOWS_WIN_H")) height = std::atoi(e);
 	const UINT dpi = GetDpiForSystem();
-	g_scale = dpi / 96.0;
-	RECT frame{0, 0, static_cast<int>(std::lround(width * g_scale)), static_cast<int>(std::lround(height * g_scale))};
+	g_dpiScale = dpi / 96.0;
+	g_scale = g_dpiScale;
+	RECT frame{0, 0, static_cast<int>(std::lround(width * g_dpiScale)), static_cast<int>(std::lround(height * g_dpiScale))};
 	const DWORD style = WS_OVERLAPPEDWINDOW;
 	AdjustWindowRectExForDpi(&frame, style, FALSE, 0, dpi);
 	const int screenW = GetSystemMetrics(SM_CXSCREEN);
