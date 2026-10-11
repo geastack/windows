@@ -200,6 +200,22 @@ if (appShell) {
 const appDir = appRoot
 const exeBaseName = appName.replace(/[<>:"/\\|?*]+/g, '').trim() || appId
 
+// gea.designWidth: the CSS width the app's stylesheets were authored for. The
+// runtime maps the client width onto it so the layout scales with the window
+// (win32_main.cpp, updateScale). The published CLI's `apps inspect` does not
+// report the field yet, so fall back to the manifest itself. The value is
+// pasted into a compiler define, so only a finite positive number may pass:
+// `Number("Infinity")` is > 0 and would emit `=Infinity`, an identifier to C++.
+const usableDesignWidth = (value) => (Number.isFinite(value) && value > 0 ? value : 0)
+let designWidth = usableDesignWidth(Number(appJson?.designWidth ?? 0))
+if (designWidth === 0 && appDir) {
+  try {
+    designWidth = usableDesignWidth(Number(JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).gea?.designWidth ?? 0))
+  } catch {
+    designWidth = 0
+  }
+}
+
 // --- output layout ---------------------------------------------------------------
 
 const outputRoot = path.resolve(process.env.GEA_WINDOWS_OUTPUT_DIR ?? path.join(projectDir, 'dist', 'windows'))
@@ -527,6 +543,7 @@ const defines = [
   '/DGEA_EMBEDDED_TTF_RUNTIME_FONTS=1',
   `/DGEA_WINDOWS_APP_ID="${appId}"`,
   `/DGEA_WINDOWS_APP_NAME="${appName.replace(/"/g, '')}"`,
+  ...(designWidth > 0 ? [`/DGEA_WINDOWS_DESIGN_WIDTH=${designWidth}`] : []),
 ]
 for (const entry of nativePackages) {
   for (const [name, value] of Object.entries(entry.defines)) defines.push(value === true ? `/D${name}` : `/D${name}=${value}`)

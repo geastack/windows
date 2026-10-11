@@ -287,8 +287,18 @@ const std::uint8_t *lookupRuntimeTtfFontForFamily(int familyId, unsigned long *l
 }  // namespace gea::framework::graphics::generated
 
 // Host text measurement: the layout engine re-measures every text node on
-// every layout pass, so results are memoized on their exact inputs.
-extern "C" bool gea_host_measure_text(const char *text, int maxWidth, int fontId, int fontSize, int *outWidth, int *outHeight)
+// every layout pass, so results are memoized on their exact inputs. The
+// engine offers three hooks and takes the first that answers; the styled one
+// carries the weight and line-height the plain one drops, which is what
+// makes the layout agree with the glyphs the renderer draws.
+extern "C" bool gea_host_measure_text_with_style(const char *text,
+                                                 int maxWidth,
+                                                 int fontId,
+                                                 int fontSize,
+                                                 int fontWeight,
+                                                 int lineHeight,
+                                                 int *outWidth,
+                                                 int *outHeight)
 {
 	if (!outWidth || !outHeight) return false;
 	if (!text || !text[0]) {
@@ -299,11 +309,16 @@ extern "C" bool gea_host_measure_text(const char *text, int maxWidth, int fontId
 	static std::mutex measureLock;
 	static std::unordered_map<std::string, std::pair<int, int>> cache;
 	std::string key;
-	key.reserve(std::strlen(text) + 24);
+	key.reserve(std::strlen(text) + 48);
 	key.append(text).push_back('\x1f');
 	key.append(std::to_string(maxWidth)).push_back('\x1f');
 	key.append(std::to_string(fontId)).push_back('\x1f');
-	key.append(std::to_string(fontSize));
+	key.append(std::to_string(fontSize)).push_back('\x1f');
+	key.append(std::to_string(fontWeight)).push_back('\x1f');
+	key.append(std::to_string(lineHeight)).push_back('\x1f');
+	// Results are layout px rounded from device px, so they depend on the scale
+	// too -- and under a designWidth the scale follows the window.
+	key.append(std::to_string(gea::win32::fontScale()));
 	{
 		std::scoped_lock guard(measureLock);
 		auto it = cache.find(key);
@@ -313,12 +328,26 @@ extern "C" bool gea_host_measure_text(const char *text, int maxWidth, int fontId
 			return true;
 		}
 	}
-	HFONT font = gea::win32::fontForId(fontId, fontSize > 0 ? fontSize : 13);
+	HFONT font = gea::win32::fontForId(fontId, fontSize > 0 ? fontSize : 13, fontWeight);
 	gea::win32::measureText(gea::win32::toWide(text), font, maxWidth, false, outWidth, outHeight);
+	// CSS line-height is the line box, not GDI's ascent + descent + leading:
+	// the engine passes it resolved to layout px (0 = normal) and expects that
+	// many px per line. GDI reports the natural block, so the line count is
+	// recovered from it and the block re-stacked at the requested advance.
+	if (lineHeight > 0) {
+		const int natural = std::max(1, gea::win32::fontLineHeight(font));
+		const int lines = std::max(1, (*outHeight + natural / 2) / natural);
+		*outHeight = lines * lineHeight;
+	}
 	{
 		std::scoped_lock guard(measureLock);
 		if (cache.size() > 8192) cache.clear();
 		cache.emplace(std::move(key), std::make_pair(*outWidth, *outHeight));
 	}
 	return true;
+}
+
+extern "C" bool gea_host_measure_text(const char *text, int maxWidth, int fontId, int fontSize, int *outWidth, int *outHeight)
+{
+	return gea_host_measure_text_with_style(text, maxWidth, fontId, fontSize, 0, 0, outWidth, outHeight);
 }

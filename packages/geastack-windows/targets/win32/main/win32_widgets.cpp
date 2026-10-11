@@ -126,6 +126,24 @@ Widget *scrollAncestor(HWND hwnd)
 	return nullptr;
 }
 
+// A wheel no native scroll window took goes to the nearest painted surface
+// above the window it landed on: the renderer pans the inline scroll rails it
+// keeps out of native scroll windows from there. Wheel messages carry screen
+// coordinates.
+bool routeWheelToSurface(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	const int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+	for (HWND cursor = hwnd; cursor; cursor = GetParent(cursor)) {
+		Widget *surface = widgetFromWindow(cursor);
+		if (!surface || !surface->events.onSurfaceWheel) continue;
+		POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+		ScreenToClient(cursor, &point);
+		surface->events.onSurfaceWheel(point.x, point.y, message == WM_MOUSEHWHEEL ? delta : 0, message == WM_MOUSEWHEEL ? delta : 0);
+		return true;
+	}
+	return false;
+}
+
 int browserKeyCode(WPARAM virtualKey)
 {
 	switch (virtualKey) {
@@ -173,7 +191,10 @@ void paintText(HDC hdc, const RECT &rect, const WidgetStyle &style, Color backgr
 	HGDIOBJ previous = font ? SelectObject(hdc, font) : nullptr;
 	SetBkMode(hdc, TRANSPARENT);
 	Color color = style.textColor.set() ? style.textColor : (g_dark ? Color::rgb(240, 240, 240) : Color::rgb(0, 0, 0));
-	if (style.opacity < 255) color = blend(background, Color::rgb(color.r, color.g, color.b, style.opacity));
+	// GDI text is opaque: a translucent colour (its own alpha, the node's
+	// opacity, or both) is flattened onto the background it sits on.
+	const int textAlpha = static_cast<int>(color.a) * style.opacity / 255;
+	if (textAlpha < 255) color = blend(background, Color::rgb(color.r, color.g, color.b, textAlpha));
 	SetTextColor(hdc, color.ref());
 	UINT format = DT_NOPREFIX | DT_EXTERNALLEADING;
 	switch (style.textAlign) {
@@ -206,6 +227,24 @@ void paintText(HDC hdc, const RECT &rect, const WidgetStyle &style, Color backgr
 			SetTextAlign(hdc, previousAlign);
 			if (previous) SelectObject(hdc, previous);
 			return;
+		}
+	}
+	// CSS centres each glyph run in its line box: a line-height below the
+	// font's natural line lets ascenders and descenders spill out of the box
+	// (visibly, never clipped), one above it adds leading around the run. GDI
+	// stacks lines at their natural advance from the top of the rect and clips
+	// to it, so shift the block by the accumulated half-leading and let it
+	// overflow when the box is the shorter one.
+	if (style.lineHeight > 0) {
+		TEXTMETRICW metrics{};
+		if (GetTextMetricsW(hdc, &metrics)) {
+			const int natural = std::max<int>(1, metrics.tmHeight + metrics.tmExternalLeading);
+			RECT block = text;
+			DrawTextW(hdc, style.text.c_str(), static_cast<int>(style.text.size()), &block, format | DT_CALCRECT);
+			const int lines = std::max<int>(1, static_cast<int>(block.bottom - block.top + natural / 2) / natural);
+			const int shift = lines * (style.lineHeight - natural) / 2;
+			text.top += shift;
+			if (shift < 0) format |= DT_NOCLIP;
 		}
 	}
 	DrawTextW(hdc, style.text.c_str(), static_cast<int>(style.text.size()), &text, format);
@@ -285,6 +324,7 @@ void paintWidget(Widget *widget, HDC target, const RECT &client)
 			WidgetStyle centred = widget->style;
 			centred.textAlign = 1;
 			centred.maxLines = 1;
+			centred.lineHeight = 0;  // already centred on the natural line above
 			paintText(memory, text, centred, under);
 		} else {
 			paintText(memory, text, widget->style, under);
@@ -488,6 +528,7 @@ LRESULT CALLBACK widgetProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 			setWidgetScrollTop(scroll, scroll->scrollTop - delta * step / WHEEL_DELTA);
 			return 0;
 		}
+		if (routeWheelToSurface(hwnd, message, wParam, lParam)) return 0;
 		break;
 	}
 	case WM_MOUSEHWHEEL: {
@@ -497,6 +538,7 @@ LRESULT CALLBACK widgetProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 			setWidgetScrollLeft(scroll, scroll->scrollLeft + delta * 120 / WHEEL_DELTA);
 			return 0;
 		}
+		if (routeWheelToSurface(hwnd, message, wParam, lParam)) return 0;
 		break;
 	}
 	case WM_COMMAND:
