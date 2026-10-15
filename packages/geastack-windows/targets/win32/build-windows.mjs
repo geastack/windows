@@ -531,7 +531,27 @@ const defines = [
 for (const entry of nativePackages) {
   for (const [name, value] of Object.entries(entry.defines)) defines.push(value === true ? `/D${name}` : `/D${name}=${value}`)
 }
-const commonFlags = ['/nologo', '/c', optimization, '/EHsc', '/MD', '/bigobj', '/utf-8', '/w', ...(debug ? ['/Z7'] : []), ...defines]
+// -fverify-intermediate-code runs LLVM's IR verifier, which clang skips by
+// default. clang 22 and 23 targeting MSVC can produce invalid IR at -O1 and
+// above for a coroutine whose catch handler assigns a local declared outside
+// the try (CoroSplit: "Instruction does not dominate all uses" in a catch
+// funclet); unverified, that build succeeds and the app runs miscompiled.
+// Verified, it fails with "Broken function found". About 1% of compile time,
+// nothing at run time; an interim safety net until the emitter avoids the
+// trigger or LLVM is fixed.
+const commonFlags = [
+  '/nologo',
+  '/c',
+  optimization,
+  '/EHsc',
+  '/MD',
+  '/bigobj',
+  '/utf-8',
+  '/w',
+  '-fverify-intermediate-code',
+  ...(debug ? ['/Z7'] : []),
+  ...defines,
+]
 const cxxFlags = ['/std:c++20', '/Zc:__cplusplus', '/permissive-', ...commonFlags]
 const cFlags = ['/DGEA_EMBEDDED_GIF_C_API', ...commonFlags]
 const includeFlags = includeDirs.map((dir) => `/I${dir}`)
