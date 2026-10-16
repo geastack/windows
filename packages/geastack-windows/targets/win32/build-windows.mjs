@@ -777,11 +777,8 @@ const linkArgs = [
   // Weak externals with differing defaults are merged (last wins); see the
   // link-order note where the source lists are assembled.
   '/force:multiple',
-  // Without /debug, lld-link folds identical functions (ICF), address-taken
-  // ones included. The runtime tells callables apart by entry address --
-  // CallableObject::callWithReceiver finds a method's receiver check by it --
-  // so a folded method template ran its twin's check.
-  '/opt:noicf',
+  // Identical-code folding stays on (lld-link's default without /debug): the
+  // Gea runtime keeps no fact about a callable behind its entry's address.
   ...(debug ? ['/debug'] : []),
   ...(resourceObject ? [resourceObject] : ['/manifest:embed', `/manifestinput:${manifestPath}`]),
   ...objects,
