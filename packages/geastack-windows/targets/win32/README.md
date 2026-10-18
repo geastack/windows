@@ -181,7 +181,7 @@ Typed settings under `gea.targets.windows.build.native` (or `gea.build.native`):
 | `ltoExcludeSources` | pattern | sources built as ordinary objects under ThinLTO |
 | `unoptimizedSources` | pattern | sources built at `/Od` (very large constant-data units) |
 | `pgo`, `pgoProfile` | `off`, `generate`, `use`; path | instrumented build, or one optimized from a merged `.profdata` |
-| `package` | `none`, `zip` | `dist/windows/<Name>-Windows.zip`: the output folder without its objects |
+| `package` | `none`, `zip` | `dist/windows/<Name>-Windows.zip`: the executable, its runtime files and `Resources` in one `<Name>/` folder |
 
 Patterns are regular expressions over the source path with forward slashes.
 `GEA_GEATSC_MAX_OLD_SPACE_SIZE` (MiB) changes the compiler's heap limit.

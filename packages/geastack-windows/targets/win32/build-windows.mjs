@@ -484,19 +484,18 @@ if (generatedSources.length > 0 && fs.existsSync(storageBridge)) {
   }
 }
 
-// Declared native sources that include the compiler runtime directly must
-// agree with the generated program on its build-wide switches: the runtime's
-// inline allocator and reference counting differ with parallel regions, and
-// the linker keeps one unit's copy of each inline function for all.
+// A program using parallel regions says so in its runtime header
+// (`#define GEA_RUNTIME_PARALLEL 1`). Every unit that sees the compiler runtime
+// must agree on it -- the runtime's inline allocator and reference counting
+// differ with parallel regions, and the linker keeps one unit's copy of each
+// inline function for all -- and headers included before that line (the
+// framework's, a package host's) see the runtime too, so it is build-wide.
 const generatedParallelRuntime =
   fs.existsSync(generatedDir) &&
   fs
     .readdirSync(generatedDir)
     .filter((name) => name.endsWith('.runtime.hpp'))
     .some((name) => /^#define GEA_RUNTIME_PARALLEL 1\b/m.test(fs.readFileSync(path.join(generatedDir, name), 'utf8')))
-if (generatedParallelRuntime) {
-  for (const source of declaredNativeSources) perUnitFlags.set(path.resolve(source), [...(perUnitFlags.get(path.resolve(source)) ?? []), '/DGEA_RUNTIME_PARALLEL=1'])
-}
 
 const generatedSet = new Set(generatedSources.map((file) => path.resolve(file)))
 const isGenerated = (file) => generatedSet.has(path.resolve(file)) || path.resolve(file).startsWith(path.resolve(generatedDir))
@@ -573,6 +572,7 @@ const defines = [
   // Program-defined hooks are ordinary references with linked defaults (see the
   // COFF note where the source lists are assembled).
   '/DGEA_LINKED_HOOK_DEFAULTS=1',
+  ...(generatedParallelRuntime ? ['/DGEA_RUNTIME_PARALLEL=1'] : []),
 ]
 defines.push(...nativeDefineFlags({ nativePackages, runtimeProviders }))
 // The app's gea.defines, as resolved by the CLI, apply to the whole build.
@@ -850,6 +850,9 @@ const linkArgs = [
   `/out:${executable}`,
   '/subsystem:windows',
   '/entry:wWinMainCRTStartup',
+  // An executable that exports symbols (a D3D12 Agility SDK version, say)
+  // needs no import library beside it.
+  '/noimplib',
   // Identical-code folding stays on (lld-link's default without /debug, and
   // stated with it): the Gea runtime keeps no fact about a callable behind its
   // entry's address.
@@ -963,23 +966,26 @@ if (appDir) {
 }
 mark('resources')
 
-// native.package 'zip': the output folder as a self-contained archive beside
-// it (everything but the build objects), named after the executable.
+// native.package 'zip': a self-contained archive of the executable, its
+// runtime files and Resources, beside the output folder.
 if (nativeSettings.package === 'zip') {
   const archive = path.join(outputRoot, `${exeBaseName}-Windows.zip`)
   fs.rmSync(archive, { force: true })
   const tar = firstExisting([path.join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe')]) || onPath('tar.exe')
   if (!tar) fail('native.package zip needs tar.exe (part of Windows 10 and later)')
   // The archive holds one folder named after the executable: a temporary copy
-  // of the output folder without its objects.
+  // of the executable, its runtime files and Resources.
   const stageRoot = path.join(outputRoot, '.package', appId)
   const staged = path.join(stageRoot, exeBaseName)
   fs.rmSync(stageRoot, { recursive: true, force: true })
-  for (const name of fs.readdirSync(distDir)) {
-    if (name === 'build') continue
-    const from = path.join(distDir, name)
-    if (fs.statSync(from).isDirectory()) copyTreeIfChanged(from, path.join(staged, name))
-    else copyIfChanged(from, path.join(staged, name))
+  // Only what the build put there: files a run writes beside the executable
+  // (logs, settings, caches) stay out.
+  const shipped = [path.basename(executable), 'Resources', ...stagingPlan.map((file) => file.to)]
+  for (const name of shipped) {
+    const from = path.join(distDir, ...name.split('/'))
+    if (!fs.existsSync(from)) continue
+    if (fs.statSync(from).isDirectory()) copyTreeIfChanged(from, path.join(staged, ...name.split('/')))
+    else copyIfChanged(from, path.join(staged, ...name.split('/')))
   }
   const result = spawnSync(tar, ['-a', '-c', '-f', archive, exeBaseName], { cwd: stageRoot, encoding: 'utf8' })
   fs.rmSync(stageRoot, { recursive: true, force: true })
