@@ -32,6 +32,16 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import {
+  NativeBuildError,
+  nativeDefineFlags,
+  nativeSourceLanguage,
+  nativeSourcePattern,
+  readNativePackages,
+  resolveRuntimeProviders,
+  runtimeStagingPlan,
+} from './native-packages.mjs'
+
 const targetDir = path.dirname(fileURLToPath(import.meta.url))
 const packageRoot = path.resolve(targetDir, '../..')
 const args = process.argv.slice(2)
@@ -274,6 +284,9 @@ if (windowsNative && windowsPlugin && !extraPlugins.some((plugin) => fs.realpath
   extraPlugins.push(path.join(windowsPlugin, 'dist', 'index.js'))
 }
 
+const buildConfigPath = process.env.GEA_BUILD_CONFIG_JSON
+const buildConfig = buildConfigPath ? JSON.parse(fs.readFileSync(buildConfigPath, 'utf8')) : { settings: { compiler: { translationUnits: 'balanced' } } }
+
 let generatedSources = []
 let generationHappened = false
 if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
@@ -288,10 +301,10 @@ if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
     newestMtime(path.join(geaCompiler, 'dist'), (name) => name.endsWith('.js')),
     newestMtime(path.join(packageRoot, 'dist'), (name) => name.endsWith('.js')),
   )
-  const buildConfigPath = process.env.GEA_BUILD_CONFIG_JSON
-  const buildConfig = buildConfigPath ? JSON.parse(fs.readFileSync(buildConfigPath, 'utf8')) : { settings: { compiler: { translationUnits: 'balanced' } } }
   const translationUnits = buildConfig.settings.compiler?.translationUnits ?? 'balanced'
-  const signature = JSON.stringify({ windowsNative, extraPlugins, buildConfig, translationUnits, entry: appEntry, geatsc: process.env.GEA_GEATSC_BIN ?? '' })
+  // gea.targets.windows.tsconfig: the TypeScript project the compiler reads the program under.
+  const tsconfig = appJson?.targetConfig?.windows?.tsconfig ? path.resolve(appDir, appJson.targetConfig.windows.tsconfig) : ''
+  const signature = JSON.stringify({ windowsNative, extraPlugins, buildConfig, translationUnits, tsconfig, entry: appEntry, geatsc: process.env.GEA_GEATSC_BIN ?? '' })
   const stampTime = fs.existsSync(stamp) ? fs.statSync(stamp).mtimeMs : 0
   const fresh =
     fs.existsSync(sourceList) && stampTime >= inputsNewest && fs.existsSync(signaturePath) && fs.readFileSync(signaturePath, 'utf8') === signature
@@ -313,6 +326,7 @@ if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
       '--no-apple-native',
     ]
     for (const plugin of extraPlugins) generateArgs.push('--extra-geatsc-plugin', plugin)
+    if (tsconfig) generateArgs.push('--project', tsconfig)
     const generateEnv = { ...frameworkEnv }
     if (buildConfigPath) generateArgs.push('--build-config', buildConfigPath)
     else generateArgs.push('--translation-units', translationUnits)
@@ -362,70 +376,37 @@ if (windowsNative && !nativeBridgeActive) {
 
 // --- native packages -------------------------------------------------------------
 //
-// A dependency that carries native code for this target says so in its own
-// `gea-native.json`, and the build picks it up without the app repeating any
-// of it. @geastack/native-webgpu is the first: it needs its host compiled, the
-// WebGPU header on the include path, an import library linked and a DLL beside
-// the executable, none of which an app should have to know.
-//
-//   { "sources": [...], "includeDirs": [...], "libraries": [...],
-//     "runtimeFiles": [...], "defines": { "NAME": "value" } }
-//
-// Every path is relative to the package root. A package whose file names
-// something missing is reported rather than silently dropped: the usual cause
-// is a vendored binary that was never fetched, and a link error naming an
-// unresolved symbol is a worse way to find that out.
+// Packages the program uses declare their native code in gea-native.json, and
+// runtime capabilities they need come from providers the app configures; see
+// native-packages.mjs for the format and the selection rules.
 
-function readNativePackages() {
-  const found = []
-  if (!appDir) return found
-  let manifest
-  try {
-    manifest = JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8'))
-  } catch {
-    return found
-  }
-  const names = [...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.devDependencies ?? {})]
-  const appRequire = createRequire(path.join(appDir, 'package.json'))
-  for (const name of names) {
-    let descriptorPath = ''
-    try {
-      descriptorPath = appRequire.resolve(`${name}/gea-native.json`)
-    } catch {
-      continue
-    }
-    const packageRootDir = path.dirname(descriptorPath)
-    let descriptor
-    try {
-      descriptor = JSON.parse(fs.readFileSync(descriptorPath, 'utf8'))
-    } catch (error) {
-      fail(`${name}'s gea-native.json is not readable JSON: ${error.message}`)
-    }
-    const resolve = (entries, what) =>
-      (entries ?? []).map((entry) => {
-        const full = path.resolve(packageRootDir, entry)
-        if (!fs.existsSync(full)) {
-          fail(`${name} names a ${what} its package does not contain: ${entry}\n` +
-               `Run its fetch script (for @geastack/native-webgpu, \`npm run fetch\` in that package) and build again.`)
-        }
-        return full
-      })
-    found.push({
-      name,
-      sources: resolve(descriptor.windows?.sources ?? descriptor.sources, 'source'),
-      includeDirs: resolve(descriptor.windows?.includeDirs ?? descriptor.includeDirs, 'include directory'),
-      libraries: resolve(descriptor.windows?.libraries ?? descriptor.libraries, 'library'),
-      runtimeFiles: resolve(descriptor.windows?.runtimeFiles ?? descriptor.runtimeFiles, 'runtime file'),
-      defines: descriptor.windows?.defines ?? descriptor.defines ?? {},
-    })
-  }
-  return found
+const windowsTargetConfig = appJson?.targetConfig?.windows ?? {}
+let nativePackages = []
+let runtimeProviders = []
+try {
+  nativePackages = readNativePackages({ appDir, moduleGraphPath: path.join(generatedDir, 'module-graph', 'gea-module-graph.json') })
+  runtimeProviders = resolveRuntimeProviders({ appDir, nativePackages, providers: windowsTargetConfig.providers })
+} catch (error) {
+  if (error instanceof NativeBuildError) fail(error.message)
+  throw error
 }
-
-const nativePackages = readNativePackages()
 if (verbose && nativePackages.length > 0) {
   process.stdout.write(`native packages: ${nativePackages.map((entry) => entry.name).join(', ')}\n`)
 }
+if (verbose) {
+  for (const provider of runtimeProviders) process.stdout.write(`provider ${provider.capability}: ${provider.directory}\n`)
+}
+
+// App native code for this target: gea.nativeSources (C and C++ only, as
+// before -- that list is shared with every target, where a .mm is Apple code)
+// and gea.targets.windows.nativeSources, which may also name .mm files.
+const appNativeSources = [
+  ...(appJson?.nativeSourcePaths ?? appJson?.nativeSources ?? [])
+    .map((source) => (path.isAbsolute(source) ? source : path.join(appDir, source)))
+    .filter((source) => /\.(?:c|cc|cpp|cxx)$/.test(source)),
+  ...(appJson?.targetNativeSourcePaths?.windows ?? []).filter((source) => nativeSourcePattern.test(source)),
+].filter((source, index, all) => fs.existsSync(source) && all.indexOf(source) === index)
+const appNativeLink = appJson?.nativeLink?.windows ?? {}
 
 // --- sources ---------------------------------------------------------------------
 
@@ -437,6 +418,7 @@ const includeDirs = [
 ]
 if (appDir) includeDirs.push(appDir, path.join(appDir, 'native'))
 for (const entry of nativePackages) includeDirs.push(...entry.includeDirs)
+includeDirs.push(...(appNativeLink.nativeIncludeDirectories ?? []))
 
 // Link order matters on this target. The framework declares its hooks weak
 // (`__attribute__((weak))`) and generated programs define several of them
@@ -468,17 +450,10 @@ if (nativeBridgeActive) {
     cxxSources.push(...fs.readdirSync(nativeDir).filter((name) => name.endsWith('.cpp')).map((name) => path.join(nativeDir, name)))
   }
 }
-for (const entry of nativePackages) {
-  for (const source of entry.sources) {
-    if (source.endsWith('.c')) cSources.push(source)
-    else if (/\.(?:cpp|cc|cxx)$/.test(source)) cxxSources.push(source)
-  }
-}
-for (const source of appJson?.nativeSourcePaths ?? appJson?.nativeSources ?? []) {
-  const full = path.isAbsolute(source) ? source : path.join(appDir, source)
-  if (!fs.existsSync(full)) continue
-  if (full.endsWith('.c')) cSources.push(full)
-  else if (/\.(?:cpp|cc|cxx)$/.test(full)) cxxSources.push(full)
+const declaredNativeSources = [...nativePackages.flatMap((entry) => entry.sources), ...appNativeSources]
+for (const source of declaredNativeSources) {
+  if (nativeSourceLanguage(source) === 'c') cSources.push(source)
+  else cxxSources.push(source)
 }
 // Generated program last (see the link-order note above).
 if (nativeBridgeActive) cxxSources.push(bridgeSource)
@@ -509,6 +484,20 @@ if (generatedSources.length > 0 && fs.existsSync(storageBridge)) {
   }
 }
 
+// Declared native sources that include the compiler runtime directly must
+// agree with the generated program on its build-wide switches: the runtime's
+// inline allocator and reference counting differ with parallel regions, and
+// the linker keeps one unit's copy of each inline function for all.
+const generatedParallelRuntime =
+  fs.existsSync(generatedDir) &&
+  fs
+    .readdirSync(generatedDir)
+    .filter((name) => name.endsWith('.runtime.hpp'))
+    .some((name) => /^#define GEA_RUNTIME_PARALLEL 1\b/m.test(fs.readFileSync(path.join(generatedDir, name), 'utf8')))
+if (generatedParallelRuntime) {
+  for (const source of declaredNativeSources) perUnitFlags.set(path.resolve(source), [...(perUnitFlags.get(path.resolve(source)) ?? []), '/DGEA_RUNTIME_PARALLEL=1'])
+}
+
 const generatedSet = new Set(generatedSources.map((file) => path.resolve(file)))
 const isGenerated = (file) => generatedSet.has(path.resolve(file)) || path.resolve(file).startsWith(path.resolve(generatedDir))
 
@@ -516,6 +505,60 @@ const isGenerated = (file) => generatedSet.has(path.resolve(file)) || path.resol
 
 const debug = flag('--debug')
 const optimization = process.env.GEA_WINDOWS_OPT ?? (debug ? '/Od' : '/O2')
+
+// Typed native settings (gea.build.native / gea.targets.windows.build.native),
+// resolved by the CLI into the build config:
+//   jobs                parallel compiles (0: automatic; --jobs and GEA_WINDOWS_JOBS win)
+//   arch                'default' | 'AVX2' | 'AVX512' instruction set (/arch)
+//   debugInfo           CodeView debug information in optimized code (/Z7, /debug)
+//   lto                 'off' | 'thin' (ThinLTO through lld-link)
+//   ltoJobs, ltoCache   ThinLTO backend threads (0: linker default) and cache directory
+//   ltoExcludeSources   sources built as ordinary objects under ThinLTO (a pattern)
+//   unoptimizedSources  sources built at /Od, e.g. very large constant-data units (a pattern)
+//   pgo, pgoProfile     'off' | 'generate' (instrumented) | 'use' (with a merged .profdata)
+//   package             'none' | 'zip' (a self-contained archive beside the output folder)
+// Patterns are regular expressions over a source's path with forward slashes.
+const nativeSettings = {
+  jobs: 0,
+  arch: 'default',
+  debugInfo: false,
+  lto: 'off',
+  ltoJobs: 0,
+  ltoCache: '',
+  ltoExcludeSources: '',
+  unoptimizedSources: '',
+  pgo: 'off',
+  pgoProfile: '',
+  package: 'none',
+  ...(buildConfig.settings?.native ?? {}),
+}
+const sourcePattern = (pattern, name) => {
+  if (!pattern) return null
+  try {
+    return new RegExp(pattern)
+  } catch (error) {
+    return fail(`native.${name} is not a regular expression: ${error.message}`)
+  }
+}
+const ltoExcluded = sourcePattern(nativeSettings.ltoExcludeSources, 'ltoExcludeSources')
+const unoptimized = sourcePattern(nativeSettings.unoptimizedSources, 'unoptimizedSources')
+const appPath = (value, name) => {
+  if (!value) return ''
+  if (!appDir) fail(`native.${name} needs an app`)
+  return path.resolve(appDir, value)
+}
+const pgoProfile = nativeSettings.pgo === 'use' ? appPath(nativeSettings.pgoProfile, 'pgoProfile') : ''
+if (nativeSettings.pgo === 'use' && (!pgoProfile || !fs.existsSync(pgoProfile))) {
+  fail(`native.pgo is 'use' but native.pgoProfile ${pgoProfile ? `names a missing file: ${pgoProfile}` : 'is not set'}; merge a profile with llvm-profdata first`)
+}
+const ltoCache = nativeSettings.lto === 'thin' ? appPath(nativeSettings.ltoCache, 'ltoCache') : ''
+const debugInfo = debug || nativeSettings.debugInfo === true
+const toolchainFlags = [
+  ...(nativeSettings.arch !== 'default' ? [`/arch:${nativeSettings.arch}`] : []),
+  ...(nativeSettings.lto === 'thin' ? ['-flto=thin'] : []),
+  ...(nativeSettings.pgo === 'generate' ? ['-fprofile-instr-generate'] : []),
+  ...(pgoProfile ? [`-fprofile-instr-use=${pgoProfile}`, '-Wno-profile-instr-out-of-date', '-Wno-profile-instr-unprofiled'] : []),
+]
 const defines = [
   '/DNOMINMAX',
   '/DUNICODE',
@@ -528,8 +571,10 @@ const defines = [
   `/DGEA_WINDOWS_APP_ID="${appId}"`,
   `/DGEA_WINDOWS_APP_NAME="${appName.replace(/"/g, '')}"`,
 ]
-for (const entry of nativePackages) {
-  for (const [name, value] of Object.entries(entry.defines)) defines.push(value === true ? `/D${name}` : `/D${name}=${value}`)
+defines.push(...nativeDefineFlags({ nativePackages, runtimeProviders }))
+// The app's gea.defines, as resolved by the CLI, apply to the whole build.
+for (const define of buildConfig.defines ?? appJson?.defines ?? []) {
+  if (typeof define === 'string' && define) defines.push(`/D${define}`)
 }
 // -fverify-intermediate-code runs LLVM's IR verifier, which clang skips by
 // default. clang 22 and 23 targeting MSVC can produce invalid IR at -O1 and
@@ -549,7 +594,8 @@ const commonFlags = [
   '/utf-8',
   '/w',
   '-fverify-intermediate-code',
-  ...(debug ? ['/Z7'] : []),
+  ...(debugInfo ? ['/Z7'] : []),
+  ...toolchainFlags,
   ...defines,
 ]
 const cxxFlags = ['/std:c++20', '/Zc:__cplusplus', '/permissive-', ...commonFlags]
@@ -565,7 +611,7 @@ function objectPathFor(source, suffix) {
       break
     }
   }
-  const mangled = relative.replace(/[\\/:]+/g, '__').replace(/\.(?:cpp|cc|cxx|c)$/, '')
+  const mangled = relative.replace(/[\\/:]+/g, '__').replace(/\.(?:cpp|cc|cxx|c|mm|m)$/, '')
   return path.join(buildDir, `${mangled}${suffix}.obj`)
 }
 
@@ -601,7 +647,21 @@ function needsCompile(source, object, signature) {
   return !depsAreOlder(`${object}.d`, object)
 }
 
-const jobs = Math.max(1, Number.parseInt(option('--jobs', process.env.GEA_WINDOWS_JOBS ?? ''), 10) || Math.min(os.availableParallelism?.() ?? os.cpus().length, 12))
+const jobs = Math.max(
+  1,
+  Number.parseInt(option('--jobs', process.env.GEA_WINDOWS_JOBS ?? ''), 10) ||
+    nativeSettings.jobs ||
+    Math.min(os.availableParallelism?.() ?? os.cpus().length, 12),
+)
+
+// Per-source exceptions to the build-wide flags (later flags win in clang-cl).
+for (const source of [...cSources, ...cxxSources]) {
+  const forward = path.resolve(source).replace(/\\/g, '/')
+  const extra = []
+  if (unoptimized?.test(forward)) extra.push('/Od')
+  if (ltoExcluded?.test(forward)) extra.push('-fno-lto')
+  if (extra.length) perUnitFlags.set(path.resolve(source), [...(perUnitFlags.get(path.resolve(source)) ?? []), ...extra])
+}
 
 const compileUnits = []
 for (const source of cSources) {
@@ -767,8 +827,21 @@ const libraries = [
   'user32.lib', 'gdi32.lib', 'comctl32.lib', 'shell32.lib', 'ole32.lib', 'oleaut32.lib', 'uuid.lib', 'uxtheme.lib', 'dwmapi.lib',
   'shcore.lib', 'gdiplus.lib', 'msimg32.lib', 'winhttp.lib', 'iphlpapi.lib', 'ws2_32.lib', 'advapi32.lib', 'comdlg32.lib',
   'xaudio2.lib', 'mfplat.lib', 'mfreadwrite.lib', 'mfuuid.lib', 'shlwapi.lib', 'winmm.lib',
-  ...nativePackages.flatMap((entry) => entry.libraries),
+  ...nativePackages.flatMap((entry) => [...entry.libraries, ...entry.systemLibraries]),
+  ...(appNativeLink.nativeSystemLibraries ?? []).map((name) => (/\.lib$/i.test(name) ? name : `${name}.lib`)),
+  ...(nativeSettings.pgo === 'generate' ? [profileRuntime()] : []),
 ]
+
+// clang's profile runtime for an instrumented (native.pgo 'generate') build.
+function profileRuntime() {
+  const clangLib = path.join(llvmBin, '..', 'lib', 'clang')
+  const versions = fs.existsSync(clangLib) ? fs.readdirSync(clangLib).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : []
+  for (const version of versions) {
+    const candidate = path.join(clangLib, version, 'lib', 'windows', 'clang_rt.profile-x86_64.lib')
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return fail(`native.pgo 'generate' needs clang's profile runtime (clang_rt.profile-x86_64.lib) under ${clangLib}`)
+}
 const linkArgs = [
   '/nologo',
   `/out:${executable}`,
@@ -777,9 +850,12 @@ const linkArgs = [
   // Weak externals with differing defaults are merged (last wins); see the
   // link-order note where the source lists are assembled.
   '/force:multiple',
-  // Identical-code folding stays on (lld-link's default without /debug): the
-  // Gea runtime keeps no fact about a callable behind its entry's address.
-  ...(debug ? ['/debug'] : []),
+  // Identical-code folding stays on (lld-link's default without /debug, and
+  // stated with it): the Gea runtime keeps no fact about a callable behind its
+  // entry's address.
+  ...(debugInfo ? ['/debug', '/opt:ref', '/opt:icf'] : []),
+  ...(nativeSettings.lto === 'thin' && nativeSettings.ltoJobs > 0 ? [`/opt:lldltojobs=${nativeSettings.ltoJobs}`] : []),
+  ...(ltoCache ? [`/lldltocache:${ltoCache}`] : []),
   ...(resourceObject ? [resourceObject] : ['/manifest:embed', `/manifestinput:${manifestPath}`]),
   ...objects,
   ...libraries,
@@ -825,11 +901,28 @@ function copyIfChanged(from, to) {
   return true
 }
 
-// A native package's runtime files (a DLL the executable loads at startup) go
-// beside the executable, not into Resources: Windows resolves an import
-// library's DLL from the executable's own directory first.
-for (const entry of nativePackages) {
-  for (const file of entry.runtimeFiles) copyIfChanged(file, path.join(distDir, path.basename(file)))
+// Native runtime files (a DLL the executable loads at startup) go beside the
+// executable, not into Resources: Windows resolves an import library's DLL
+// from the executable's own directory first.
+let stagingPlan = []
+try {
+  stagingPlan = runtimeStagingPlan({ nativePackages, runtimeProviders })
+} catch (error) {
+  if (error instanceof NativeBuildError) fail(error.message)
+  throw error
+}
+for (const file of stagingPlan) copyIfChanged(file.from, path.join(distDir, ...file.to.split('/')))
+
+function copyTreeIfChanged(from, to) {
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const source = path.join(from, entry.name)
+    if (entry.isDirectory()) copyTreeIfChanged(source, path.join(to, entry.name))
+    else if (entry.isFile()) copyIfChanged(source, path.join(to, entry.name))
+  }
+}
+// gea.targets.windows.nativeResources: { "<name>": "<app directory>" } lands in Resources/<name>.
+for (const [name, source] of Object.entries(appJson?.nativeResources?.windows ?? {})) {
+  if (fs.existsSync(source) && fs.statSync(source).isDirectory()) copyTreeIfChanged(source, path.join(resourcesDir, name))
 }
 
 if (appDir) {
@@ -877,6 +970,31 @@ if (appDir) {
   }
 }
 mark('resources')
+
+// native.package 'zip': the output folder as a self-contained archive beside
+// it (everything but the build objects), named after the executable.
+if (nativeSettings.package === 'zip') {
+  const archive = path.join(outputRoot, `${exeBaseName}-Windows.zip`)
+  fs.rmSync(archive, { force: true })
+  const tar = firstExisting([path.join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe')]) || onPath('tar.exe')
+  if (!tar) fail('native.package zip needs tar.exe (part of Windows 10 and later)')
+  // The archive holds one folder named after the executable: a temporary copy
+  // of the output folder without its objects.
+  const stageRoot = path.join(outputRoot, '.package', appId)
+  const staged = path.join(stageRoot, exeBaseName)
+  fs.rmSync(stageRoot, { recursive: true, force: true })
+  for (const name of fs.readdirSync(distDir)) {
+    if (name === 'build') continue
+    const from = path.join(distDir, name)
+    if (fs.statSync(from).isDirectory()) copyTreeIfChanged(from, path.join(staged, name))
+    else copyIfChanged(from, path.join(staged, name))
+  }
+  const result = spawnSync(tar, ['-a', '-c', '-f', archive, exeBaseName], { cwd: stageRoot, encoding: 'utf8' })
+  fs.rmSync(stageRoot, { recursive: true, force: true })
+  if (result.status !== 0) fail(`packaging failed:\n${result.stdout}${result.stderr}`)
+  process.stdout.write(`Packaged ${archive}\n`)
+}
+mark('package')
 
 process.stdout.write(`Built ${executable}\n`)
 if (process.env.GEA_WINDOWS_TIMINGS === '1') {

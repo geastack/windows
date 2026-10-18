@@ -12,6 +12,8 @@
 
 #include <timeapi.h>
 
+#include "win32_host_extensions.h"
+
 #include "app.h"
 #include "css/declarative.h"
 #include "css/engine.h"
@@ -101,6 +103,52 @@ bool g_running = true;
 WindowConfig g_config;
 int g_frameIntervalUs = 16667;
 bool g_booted = false;
+
+// --- host extensions -------------------------------------------------------------
+//
+// Packages and apps that own part of the window (a rendering surface) register
+// through gea_win32_host.h (win32_host_extensions.cpp keeps the list).
+
+using gea::win32::hostExtensions;
+
+void layoutHostExtensions();
+
+// Runs the extensions' begin_frame hooks; the returned scope ends every frame
+// that began. `ok` is false when one of them asked to skip the frame.
+struct HostFrameScope {
+	size_t begun = 0;
+	bool ok = true;
+	HostFrameScope()
+	{
+		for (const auto *extension : hostExtensions()) {
+			if (!extension->begin_frame) {
+				begun++;
+				continue;
+			}
+			if (!extension->begin_frame()) {
+				ok = false;
+				break;
+			}
+			begun++;
+		}
+	}
+	~HostFrameScope()
+	{
+		auto &extensions = hostExtensions();
+		for (size_t i = begun; i-- > 0;) {
+			if (extensions[i]->end_frame) extensions[i]->end_frame();
+		}
+	}
+	HostFrameScope(const HostFrameScope &) = delete;
+	HostFrameScope &operator=(const HostFrameScope &) = delete;
+};
+
+void reportStartupFailure(const std::wstring &message)
+{
+	std::fprintf(stderr, "[gea-windows] %s\n", gea::win32::fromWide(message).c_str());
+	std::fflush(stderr);
+	if (!std::getenv("GEA_WINDOWS_NO_DIALOGS")) MessageBoxW(g_window, message.c_str(), g_config.title.c_str(), MB_OK | MB_ICONERROR);
+}
 
 // --- tiny JSON reader for window.json ------------------------------------------
 
@@ -409,7 +457,11 @@ bool saveWindowScreenshot(const std::wstring &path)
 	const int width = rect.right - rect.left;
 	const int height = rect.bottom - rect.top;
 	if (width <= 0 || height <= 0) return false;
-	HDC screen = GetDC(g_window);
+	// The desktop's DC, not the window's: a child presenting through a swap
+	// chain (a GPU surface) is composed by DWM and absent from the window DC.
+	HDC screen = GetDC(nullptr);
+	POINT origin{0, 0};
+	ClientToScreen(g_window, &origin);
 	HDC memory = CreateCompatibleDC(screen);
 	HBITMAP bitmap = CreateCompatibleBitmap(screen, width, height);
 	HGDIOBJ previous = SelectObject(memory, bitmap);
@@ -419,10 +471,10 @@ bool saveWindowScreenshot(const std::wstring &path)
 	// boxes. The screen copy is what the user sees; PrintWindow is the
 	// fallback for a hidden or minimized window.
 	const bool onScreen = IsWindowVisible(g_window) && !IsIconic(g_window);
-	if (!onScreen || !BitBlt(memory, 0, 0, width, height, screen, 0, 0, SRCCOPY)) PrintWindow(g_window, memory, PW_CLIENTONLY | 0x00000002);
+	if (!onScreen || !BitBlt(memory, 0, 0, width, height, screen, origin.x, origin.y, SRCCOPY)) PrintWindow(g_window, memory, PW_CLIENTONLY | 0x00000002);
 	SelectObject(memory, previous);
 	DeleteDC(memory);
-	ReleaseDC(g_window, screen);
+	ReleaseDC(nullptr, screen);
 	CLSID png{};
 	UINT count = 0;
 	UINT size = 0;
@@ -477,7 +529,10 @@ void tick()
 		count++;
 		if (count <= 10 || count % 60 == 0) std::fprintf(stderr, "[gea-windows] tick %d now=%d\n", count, gea_embedded_now_ms());
 	}
-	gea::framework::app::Application::frame(gea_embedded_now_ms());
+	{
+		HostFrameScope hostFrame;
+		if (hostFrame.ok) gea::framework::app::Application::frame(gea_embedded_now_ms());
+	}
 	auto &tree = gea::embedded::ui::Tree::instance();
 	const int root = tree.mountedRoot();
 
@@ -577,9 +632,9 @@ void tick()
 
 // --- boot ------------------------------------------------------------------------
 
-void boot()
+bool boot()
 {
-	if (g_booted) return;
+	if (g_booted) return true;
 	g_booted = true;
 	gea::win32::installWifiDriver();
 	gea::win32::registerFontDirectory(resourcesDirectory() + L"\\Fonts");
@@ -596,7 +651,23 @@ void boot()
 	const RECT area = computeContentArea();
 	const int w = std::max(1, static_cast<int>(std::lround((area.right - area.left) / g_scale)));
 	const int h = std::max(1, static_cast<int>(std::lround((area.bottom - area.top) / g_scale)));
-	gea::framework::app::Application::init(w, h);
+	// Extensions attach before the top level runs: a program creates its
+	// rendering context while it initializes.
+	for (const auto *extension : hostExtensions()) {
+		if (extension->attach && !extension->attach(g_window, area, g_scale)) {
+			const std::string name = extension->name ? extension->name : "a host extension";
+			reportStartupFailure(gea::win32::toWide(name) + L" could not start; see the log for details.");
+			g_running = false;
+			return false;
+		}
+	}
+	{
+		HostFrameScope hostFrame;
+		gea::framework::app::Application::init(w, h);
+	}
+	// A program that mounts no component tree and draws through an extension's
+	// surface shows only that surface.
+	if (!hostExtensions().empty() && gea::embedded::ui::Tree::instance().mountedRoot() < 0 && g_contentHost) ShowWindow(g_contentHost->hwnd, SW_HIDE);
 
 	// A <glass-split> root swaps the flat content host for the split shell.
 	if (!g_nativeRoot && !g_nativeLayout) {
@@ -607,10 +678,25 @@ void boot()
 		}
 	}
 	tick();
+	return true;
+}
+
+void layoutHostExtensions()
+{
+	const RECT area = computeContentArea();
+	for (const auto *extension : hostExtensions()) {
+		if (extension->layout) extension->layout(area, g_scale);
+	}
 }
 
 LRESULT CALLBACK mainWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+	if (g_booted) {
+		for (const auto *extension : hostExtensions()) {
+			LRESULT result = 0;
+			if (extension->window_message && extension->window_message(hwnd, message, wParam, lParam, &result)) return result;
+		}
+	}
 	switch (message) {
 	case WM_ERASEBKGND: {
 		RECT rect{};
@@ -637,6 +723,7 @@ LRESULT CALLBACK mainWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
 	case WM_SIZE:
 		if (g_booted && wParam != SIZE_MINIMIZED) {
 			layoutNativeChrome();
+			layoutHostExtensions();
 			tick();
 		}
 		return 0;
@@ -655,7 +742,10 @@ LRESULT CALLBACK mainWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
 		SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left, suggested->bottom - suggested->top,
 		             SWP_NOZORDER | SWP_NOACTIVATE);
 		updateFrameInterval();
-		if (g_booted) tick();
+		if (g_booted) {
+			layoutHostExtensions();
+			tick();
+		}
 		return 0;
 	}
 	case WM_DISPLAYCHANGE:
@@ -825,7 +915,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 
 	ShowWindow(g_window, SW_SHOW);
 	UpdateWindow(g_window);
-	boot();
+	if (!boot()) return 1;
 
 	// Frame pacing: run a frame every refresh interval, waiting for input in
 	// between so an idle window costs nothing between ticks. The wait goes
@@ -851,6 +941,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 			DispatchMessageW(&message);
 		}
 		if (!g_running) break;
+		// Presentation-paced frames: one after another, idle while minimized.
+		if (gea::win32::framePacing() == GEA_WIN32_FRAME_PACING_PRESENT) {
+			if (IsIconic(g_window)) {
+				WaitMessage();
+				continue;
+			}
+			g_frameRequested = false;
+			tick();
+			continue;
+		}
 		const auto now = std::chrono::steady_clock::now();
 		if (now >= nextFrame || g_frameRequested) {
 			g_frameRequested = false;
@@ -870,6 +970,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 		}
 	}
 	if (frameTimer) CloseHandle(frameTimer);
+	for (const auto *extension : hostExtensions()) {
+		if (extension->detach) extension->detach();
+	}
 	g_shell.reset();
 	gea::win32::Renderer::instance().teardown();
 	CoUninitialize();
