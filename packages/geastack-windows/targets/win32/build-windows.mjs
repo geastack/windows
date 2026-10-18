@@ -420,17 +420,17 @@ if (appDir) includeDirs.push(appDir, path.join(appDir, 'native'))
 for (const entry of nativePackages) includeDirs.push(...entry.includeDirs)
 includeDirs.push(...(appNativeLink.nativeIncludeDirectories ?? []))
 
-// Link order matters on this target. The framework declares its hooks weak
+// Weak symbols on COFF. The framework declares optional hooks weak
 // (`__attribute__((weak))`) and generated programs define several of them
-// weakly too (asset lookup, cycle-collection deferral). On COFF a weak symbol
-// is a "weak external" with a per-object default alias, and two objects
-// naming different defaults for one symbol is a hard error for both link.exe
-// and lld-link. lld-link's /force:multiple demotes that to a warning and keeps
-// the LAST default it sees, so the objects go framework first, target second,
-// generated program last: every weak reference then resolves to the real
-// definition, and a hook nothing defines stays null exactly as on the other
-// targets. Strong definitions (the target's platform hooks) win over weak ones
-// regardless of order.
+// weakly too (asset lookup, cycle-collection deferral). A COFF weak symbol is
+// a "weak external" with a per-object default alias, and a weak reference
+// meeting a weak definition names two defaults: a duplicate for both link.exe
+// and lld-link. The hooks a program defines are therefore referenced as
+// ordinary symbols here (GEA_LINKED_HOOK_DEFAULTS), and the target links each
+// one's default through /alternatename (main/win32_hook_defaults.cpp), which
+// applies only while nothing defines the symbol. Every other duplicate is a
+// link error. The objects still go framework first, target second, generated
+// program last.
 const excludedFramework = /\/(host\/camera|runtime|services\/[a-z_]+)\.cpp$/
 const cSources = [...manifestQuery('c-sources'), path.join(targetDir, 'main', 'win32_apps.c')]
 const cxxSources = [
@@ -570,6 +570,9 @@ const defines = [
   '/DGEA_EMBEDDED_TTF_RUNTIME_FONTS=1',
   `/DGEA_WINDOWS_APP_ID="${appId}"`,
   `/DGEA_WINDOWS_APP_NAME="${appName.replace(/"/g, '')}"`,
+  // Program-defined hooks are ordinary references with linked defaults (see the
+  // COFF note where the source lists are assembled).
+  '/DGEA_LINKED_HOOK_DEFAULTS=1',
 ]
 defines.push(...nativeDefineFlags({ nativePackages, runtimeProviders }))
 // The app's gea.defines, as resolved by the CLI, apply to the whole build.
@@ -847,9 +850,6 @@ const linkArgs = [
   `/out:${executable}`,
   '/subsystem:windows',
   '/entry:wWinMainCRTStartup',
-  // Weak externals with differing defaults are merged (last wins); see the
-  // link-order note where the source lists are assembled.
-  '/force:multiple',
   // Identical-code folding stays on (lld-link's default without /debug, and
   // stated with it): the Gea runtime keeps no fact about a callable behind its
   // entry's address.
@@ -877,16 +877,8 @@ if (linkNeeded) {
     process.stderr.write(result.stdout + result.stderr)
     fail('link failed')
   }
-  // /force:multiple reports every merged weak external as a duplicate-symbol
-  // warning. Those are expected; anything else the linker says is shown.
-  const linkOutput = (result.stdout + result.stderr).split(/\r?\n/)
-  const merged = linkOutput.filter((line) => /warning: duplicate symbol/.test(line))
-  const other = linkOutput.filter((line) => line.trim() && !/warning: duplicate symbol/.test(line) && !/^>>> defined at/.test(line))
-  if (merged.length > 0) {
-    const names = merged.map((line) => line.replace(/^lld-link: warning: duplicate symbol: /, ''))
-    process.stdout.write(`  merged ${merged.length} weak symbol(s)${verbose ? `: ${names.join(', ')}` : ''}\n`)
-  }
-  if (other.length > 0) process.stderr.write(`${other.join('\n')}\n`)
+  const linkOutput = (result.stdout + result.stderr).trim()
+  if (linkOutput) process.stderr.write(`${linkOutput}\n`)
   fs.writeFileSync(linkSignaturePath, linkSignature)
 }
 mark('link')
