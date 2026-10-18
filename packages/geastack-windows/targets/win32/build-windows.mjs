@@ -304,7 +304,17 @@ if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
   const translationUnits = buildConfig.settings.compiler?.translationUnits ?? 'balanced'
   // gea.targets.windows.tsconfig: the TypeScript project the compiler reads the program under.
   const tsconfig = appJson?.targetConfig?.windows?.tsconfig ? path.resolve(appDir, appJson.targetConfig.windows.tsconfig) : ''
-  const signature = JSON.stringify({ windowsNative, extraPlugins, buildConfig, translationUnits, tsconfig, entry: appEntry, geatsc: process.env.GEA_GEATSC_BIN ?? '' })
+  // The native toolchain settings do not reach the generated C++; changing
+  // one recompiles or relinks, it does not regenerate.
+  const { native: _nativeSettings, ...generationSettings } = buildConfig.settings ?? {}
+  const generationConfig = {
+    settings: generationSettings,
+    defines: buildConfig.defines,
+    inferred: buildConfig.inferred,
+    cssDevicePixelRatio: buildConfig.cssDevicePixelRatio,
+    capabilities: buildConfig.capabilities,
+  }
+  const signature = JSON.stringify({ windowsNative, extraPlugins, buildConfig: generationConfig, translationUnits, tsconfig, entry: appEntry, geatsc: process.env.GEA_GEATSC_BIN ?? '' })
   const stampTime = fs.existsSync(stamp) ? fs.statSync(stamp).mtimeMs : 0
   const fresh =
     fs.existsSync(sourceList) && stampTime >= inputsNewest && fs.existsSync(signaturePath) && fs.readFileSync(signaturePath, 'utf8') === signature
