@@ -22,7 +22,8 @@
 // app's own folder. Environment:
 // GEA_EXTRA_GEATSC_PLUGINS (path-delimited compiler plugins), GEA_CLI_BIN,
 // GEA_GEATSC_BIN, GEA_WINDOWS_CLANG_CL, GEA_WINDOWS_LLD_LINK, GEA_WINDOWS_JOBS,
-// GEA_WINDOWS_OPT (/O2). Translation-unit layout comes from package.json.
+// GEA_WINDOWS_OPT (/O2), GEA_WINDOWS_PGO (overrides native.pgo). Translation-unit
+// layout comes from package.json.
 
 import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
@@ -540,6 +541,12 @@ const nativeSettings = {
   pgoProfile: '',
   package: 'none',
   ...(buildConfig.settings?.native ?? {}),
+}
+// GEA_WINDOWS_PGO (off | generate | use) overrides native.pgo for one build:
+// the instrumented training build of an app whose manifest says 'use'.
+if (process.env.GEA_WINDOWS_PGO) {
+  if (!['off', 'generate', 'use'].includes(process.env.GEA_WINDOWS_PGO)) fail(`GEA_WINDOWS_PGO must be off, generate or use: ${process.env.GEA_WINDOWS_PGO}`)
+  nativeSettings.pgo = process.env.GEA_WINDOWS_PGO
 }
 const sourcePattern = (pattern, name) => {
   if (!pattern) return null

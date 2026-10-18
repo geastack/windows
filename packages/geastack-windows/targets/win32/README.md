@@ -184,4 +184,7 @@ Typed settings under `gea.targets.windows.build.native` (or `gea.build.native`):
 | `package` | `none`, `zip` | `dist/windows/<Name>-Windows.zip`: the executable, its runtime files and `Resources` in one `<Name>/` folder |
 
 Patterns are regular expressions over the source path with forward slashes.
+`GEA_WINDOWS_PGO=generate` (or `off`, `use`) overrides `pgo` for one build, e.g.
+the instrumented training build of an app that ships with `pgo: "use"`; an
+instrumented executable writes its profile (`LLVM_PROFILE_FILE`) when it exits.
 `GEA_GEATSC_MAX_OLD_SPACE_SIZE` (MiB) changes the compiler's heap limit.
