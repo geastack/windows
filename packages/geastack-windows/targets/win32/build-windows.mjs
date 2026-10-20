@@ -356,6 +356,8 @@ if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
     newestMtime(path.join(geaPlugin, 'dist'), (name) => name.endsWith('.js')),
     windowsPlugin ? newestMtime(path.join(windowsPlugin, 'dist'), (name) => name.endsWith('.js')) : 0,
     newestMtime(path.join(geaCompiler, 'dist'), (name) => name.endsWith('.js')),
+    // The runtime the compiler copies into the generated C++ ships as source next to its dist.
+    newestMtime(path.join(geaCompiler, 'src', 'targets', 'cpp', 'runtime'), (name) => /\.(?:h|cpp)$/.test(name)),
     newestMtime(path.join(packageRoot, 'dist'), (name) => name.endsWith('.js')),
   )
   const translationUnits = buildConfig.settings.compiler?.translationUnits ?? 'balanced'
