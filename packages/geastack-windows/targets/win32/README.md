@@ -24,6 +24,15 @@ Everything lands under the **app project**, never under this package:
 sounds, and `<app>/dist/windows/.generated/<app-id>/` for the generated C++.
 `GEA_WINDOWS_OUTPUT_DIR` moves the tree.
 
+The C++ is generated again only when an input changed since the last
+generation (`.gea-generation.stamp`) or the generation settings differ
+(`.gea-build-env`). The inputs are the app directory's sources, every module
+the last generation compiled (from its module graph, so sources the entry
+imports from outside the app directory, e.g. `../src`, count; a listed module
+that no longer exists forces a new generation), the project's tsconfig and the
+configs it `extends`, and the framework, plugins and compiler. Otherwise the
+build only compiles and links what changed.
+
 Without app metadata the build falls back to the built-in smoke app
 (`main/win32_smoke_app.cpp`), which exercises View / Text / Button / event
 dispatch.

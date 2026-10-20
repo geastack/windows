@@ -257,6 +257,57 @@ function newestMtime(dir, predicate, skip = new Set(['node_modules', 'dist', 'bu
   return newest
 }
 
+// The newest modification time among the modules of the program the last
+// generation compiled, as its Vite module graph lists them: an app whose entry
+// imports sources outside its own directory (`../src`) has inputs that
+// newestMtime(appDir) never visits. A listed module that no longer exists
+// answers Infinity, so the program is generated again. 0 when there is no
+// graph yet (the first generation) or it cannot be read.
+function newestProgramMtime(graphPath) {
+  let graph
+  try {
+    graph = JSON.parse(fs.readFileSync(graphPath, 'utf8'))
+  } catch {
+    return 0
+  }
+  let newest = 0
+  for (const module of Array.isArray(graph?.modules) ? graph.modules : []) {
+    const file = module?.file
+    if (typeof file !== 'string' || !path.isAbsolute(file)) continue
+    let stat
+    try {
+      stat = fs.statSync(file)
+    } catch {
+      return Infinity
+    }
+    if (stat.mtimeMs > newest) newest = stat.mtimeMs
+  }
+  return newest
+}
+
+// The newest modification time along a tsconfig's `extends` chain (relative
+// paths only), which may leave the app directory (`"extends": "../tsconfig.json"`).
+function newestTsconfigMtime(file, seen = new Set()) {
+  if (!file || seen.has(file) || !fs.existsSync(file)) return 0
+  seen.add(file)
+  let newest = fs.statSync(file).mtimeMs
+  let extended = []
+  try {
+    // tsconfig allows comments and trailing commas; only `extends` is read, so a
+    // file JSON cannot parse contributes its own time alone.
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+    extended = Array.isArray(parsed?.extends) ? parsed.extends : parsed?.extends ? [parsed.extends] : []
+  } catch {
+    extended = []
+  }
+  for (const next of extended) {
+    if (typeof next !== 'string' || !next.startsWith('.')) continue
+    const target = path.resolve(path.dirname(file), next.endsWith('.json') ? next : `${next}.json`)
+    newest = Math.max(newest, newestTsconfigMtime(target, seen))
+  }
+  return newest
+}
+
 function usesWindowsNative(dir) {
   const stack = [dir]
   while (stack.length > 0) {
@@ -294,8 +345,13 @@ if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
   const sourceList = path.join(generatedDir, 'geatsc-sources.txt')
   const stamp = path.join(generatedDir, '.gea-generation.stamp')
   const signaturePath = path.join(generatedDir, '.gea-build-env')
+  // gea.targets.windows.tsconfig: the TypeScript project the compiler reads the program under.
+  const tsconfig = appJson?.targetConfig?.windows?.tsconfig ? path.resolve(appDir, appJson.targetConfig.windows.tsconfig) : ''
   const inputsNewest = Math.max(
     newestMtime(appDir, (name) => /\.(?:tsx?|jsx?|mjs|css|json)$/.test(name)),
+    // Sources the program imports from outside the app directory, and its project's base configs.
+    newestProgramMtime(path.join(generatedDir, 'module-graph', 'gea-module-graph.json')),
+    newestTsconfigMtime(tsconfig),
     newestMtime(path.join(geaCore, 'scripts'), (name) => name.endsWith('.mjs')),
     newestMtime(path.join(geaPlugin, 'dist'), (name) => name.endsWith('.js')),
     windowsPlugin ? newestMtime(path.join(windowsPlugin, 'dist'), (name) => name.endsWith('.js')) : 0,
@@ -303,8 +359,6 @@ if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
     newestMtime(path.join(packageRoot, 'dist'), (name) => name.endsWith('.js')),
   )
   const translationUnits = buildConfig.settings.compiler?.translationUnits ?? 'balanced'
-  // gea.targets.windows.tsconfig: the TypeScript project the compiler reads the program under.
-  const tsconfig = appJson?.targetConfig?.windows?.tsconfig ? path.resolve(appDir, appJson.targetConfig.windows.tsconfig) : ''
   // The native toolchain settings do not reach the generated C++; changing
   // one recompiles or relinks, it does not regenerate.
   const { native: _nativeSettings, ...generationSettings } = buildConfig.settings ?? {}
