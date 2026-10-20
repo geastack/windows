@@ -727,7 +727,9 @@ const jobs = Math.max(
   1,
   Number.parseInt(option('--jobs', process.env.GEA_WINDOWS_JOBS ?? ''), 10) ||
     nativeSettings.jobs ||
-    Math.min(os.availableParallelism?.() ?? os.cpus().length, 12),
+    // One compile per core, as many as memory holds: the largest generated unit of a
+    // large three.js program peaks just under 2 GB.
+    Math.min(os.availableParallelism?.() ?? os.cpus().length, Math.floor(os.totalmem() / (2 * 1024 ** 3))),
 )
 
 // Per-source exceptions to the build-wide flags (later flags win in clang-cl).
