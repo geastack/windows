@@ -191,6 +191,7 @@ Typed settings under `gea.targets.windows.build.native` (or `gea.build.native`):
 | `unoptimizedSources` | pattern | sources built at `/Od` (very large constant-data units) |
 | `pgo`, `pgoProfile` | `off`, `generate`, `use`; path | instrumented build, or one optimized from a merged `.profdata` |
 | `package` | `none`, `zip` | `dist/windows/<Name>-Windows.zip`: the executable, its runtime files and `Resources` in one `<Name>/` folder |
+| `pch` | `true` (default), `false` | the generated program's header (`geatsc-header.txt`'s `program=`, which every generated unit includes first) compiled once as a precompiled header for those units; `GEA_WINDOWS_PCH=0` turns it off for one build |
 
 Patterns are regular expressions over the source path with forward slashes.
 `GEA_WINDOWS_PGO=generate` (or `off`, `use`) overrides `pgo` for one build, e.g.

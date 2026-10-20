@@ -581,6 +581,7 @@ const optimization = process.env.GEA_WINDOWS_OPT ?? (debug ? '/Od' : '/O2')
 //   unoptimizedSources  sources built at /Od, e.g. very large constant-data units (a pattern)
 //   pgo, pgoProfile     'off' | 'generate' (instrumented) | 'use' (with a merged .profdata)
 //   package             'none' | 'zip' (a self-contained archive beside the output folder)
+//   pch                 precompile the generated program's header once for all its units (default true)
 // Patterns are regular expressions over a source's path with forward slashes.
 const nativeSettings = {
   jobs: 0,
@@ -594,6 +595,7 @@ const nativeSettings = {
   pgo: 'off',
   pgoProfile: '',
   package: 'none',
+  pch: true,
   ...(buildConfig.settings?.native ?? {}),
 }
 // GEA_WINDOWS_PGO (off | generate | use) overrides native.pgo for one build:
@@ -748,11 +750,48 @@ for (const source of cxxSources) {
 }
 const objects = compileUnits.map((unit) => unit.object)
 
+// The generated program's header (geatsc-header.txt's program=, e.g. main.hpp) holds every
+// declaration of the program and the compiler runtime: megabytes that each generated unit
+// begins by including. It is compiled once into a precompiled header, and every generated unit
+// whose first line includes it, built with the build-wide flags, uses that instead of parsing it
+// again. native.pch: false (or GEA_WINDOWS_PCH=0) turns it off.
+let programPch = null
+if ((process.env.GEA_WINDOWS_PCH ?? (nativeSettings.pch === false ? '0' : '1')) !== '0' && generatedSources.length > 0) {
+  const headerManifest = path.join(generatedDir, 'geatsc-header.txt')
+  let programHeader = ''
+  if (fs.existsSync(headerManifest)) {
+    for (const line of fs.readFileSync(headerManifest, 'utf8').split(/\r?\n/)) {
+      if (line.startsWith('program=')) programHeader = line.slice('program='.length)
+    }
+  }
+  if (programHeader && fs.existsSync(programHeader) && path.dirname(path.resolve(programHeader)) === path.resolve(generatedDir)) {
+    const header = path.basename(programHeader)
+    const include = `#include "${header}"`
+    const users = compileUnits.filter((unit) => {
+      if (unit.kind !== 'cxx' || !isGenerated(unit.source) || perUnitFlags.has(path.resolve(unit.source))) return false
+      const head = fs.readFileSync(unit.source, 'utf8').slice(0, 512)
+      return head.split(/\r?\n/, 1)[0].trim() === include
+    })
+    if (users.length > 1) {
+      fs.mkdirSync(buildDir, { recursive: true })
+      const source = path.join(buildDir, 'gea-program-pch.cpp')
+      if (!fs.existsSync(source) || fs.readFileSync(source, 'utf8') !== `${include}\n`) fs.writeFileSync(source, `${include}\n`)
+      const pch = path.join(buildDir, 'gea-program.pch')
+      const unit = { source, object: path.join(buildDir, 'gea-program-pch.cxx.obj'), flags: cxxFlags, kind: 'cxx', extraFlags: [`/Yc${header}`, `/Fp${pch}`] }
+      compileUnits.unshift(unit)
+      objects.unshift(unit.object)
+      for (const user of users) user.extraFlags = [`/Yu${header}`, `/Fp${pch}`]
+      programPch = { unit, pch, users: new Set(users) }
+    }
+  }
+}
+
 function compileCommand(unit) {
   const depfile = `${unit.object}.d`
   const commandArgs = [
     ...unit.flags,
     ...(perUnitFlags.get(path.resolve(unit.source)) ?? []),
+    ...(unit.extraFlags ?? []),
     ...includeFlags,
     unit.kind === 'c' ? '/TC' : '/TP',
     '/clang:-MD',
@@ -763,13 +802,51 @@ function compileCommand(unit) {
   return commandArgs
 }
 
-async function runCompiles() {
-  const pending = compileUnits.filter((unit) => {
-    const signature = hashText(`${clangVersion}\n${compileCommand(unit).slice(0, -2).join('\n')}`)
-    unit.signature = signature
-    return needsCompile(unit.source, unit.object, signature)
+async function compileOne(unit) {
+  fs.rmSync(`${unit.object}.sig`, { force: true })
+  const commandArgs = compileCommand(unit)
+  if (verbose) process.stdout.write(`${path.basename(clangCl)} ${commandArgs.join(' ')}\n`)
+  else process.stdout.write(`  CXX ${path.relative(projectDir, unit.source).replace(/\\/g, '/')}\n`)
+  const result = await new Promise((resolve) => {
+    const child = spawn(clangCl, commandArgs, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let output = ''
+    child.stdout.on('data', (chunk) => (output += chunk))
+    child.stderr.on('data', (chunk) => (output += chunk))
+    child.on('close', (code) => resolve({ code, output }))
+    child.on('error', (error) => resolve({ code: 1, output: String(error) }))
   })
-  if (pending.length === 0) return 0
+  if (result.code !== 0) {
+    fs.rmSync(unit.object, { force: true })
+    return `${unit.source}\n${result.output}`
+  }
+  if (result.output.trim()) process.stderr.write(result.output)
+  fs.writeFileSync(`${unit.object}.sig`, unit.signature)
+  return null
+}
+
+async function runCompiles() {
+  for (const unit of compileUnits) unit.signature = hashText(`${clangVersion}\n${compileCommand(unit).slice(0, -2).join('\n')}`)
+  let pchBuilt = 0
+  if (programPch) {
+    const { unit, pch } = programPch
+    if (!fs.existsSync(pch) || needsCompile(unit.source, unit.object, unit.signature)) {
+      process.stdout.write(`Precompiling ${path.basename(unit.extraFlags[0].slice(3))} for ${programPch.users.size} generated units...\n`)
+      const failure = await compileOne(unit)
+      if (failure) {
+        process.stderr.write(failure)
+        fail('compilation failed')
+      }
+      pchBuilt = 1
+    }
+  }
+  const pchTime = programPch && fs.existsSync(programPch.pch) ? fs.statSync(programPch.pch).mtimeMs : 0
+  const pending = compileUnits.filter((unit) => {
+    if (programPch && unit === programPch.unit) return false
+    // A unit built on the precompiled header is out of date once the header is rebuilt.
+    if (programPch?.users.has(unit) && fs.existsSync(unit.object) && fs.statSync(unit.object).mtimeMs < pchTime) return true
+    return needsCompile(unit.source, unit.object, unit.signature)
+  })
+  if (pending.length === 0) return pchBuilt
   process.stdout.write(`Compiling ${pending.length} of ${compileUnits.length} translation units (jobs=${jobs})...\n`)
   // Biggest sources first keeps the pool busy at the tail.
   pending.sort((a, b) => fs.statSync(b.source).size - fs.statSync(a.source).size)
@@ -778,27 +855,12 @@ async function runCompiles() {
   const failures = []
   const worker = async () => {
     while (index < pending.length && !failed) {
-      const unit = pending[index++]
-      fs.rmSync(`${unit.object}.sig`, { force: true })
-      const commandArgs = compileCommand(unit)
-      if (verbose) process.stdout.write(`${path.basename(clangCl)} ${commandArgs.join(' ')}\n`)
-      else process.stdout.write(`  CXX ${path.relative(projectDir, unit.source).replace(/\\/g, '/')}\n`)
-      const result = await new Promise((resolve) => {
-        const child = spawn(clangCl, commandArgs, { stdio: ['ignore', 'pipe', 'pipe'] })
-        let output = ''
-        child.stdout.on('data', (chunk) => (output += chunk))
-        child.stderr.on('data', (chunk) => (output += chunk))
-        child.on('close', (code) => resolve({ code, output }))
-        child.on('error', (error) => resolve({ code: 1, output: String(error) }))
-      })
-      if (result.code !== 0) {
+      const failure = await compileOne(pending[index++])
+      if (failure) {
         failed = true
-        failures.push(`${unit.source}\n${result.output}`)
-        fs.rmSync(unit.object, { force: true })
+        failures.push(failure)
         return
       }
-      if (result.output.trim()) process.stderr.write(result.output)
-      fs.writeFileSync(`${unit.object}.sig`, unit.signature)
     }
   }
   await Promise.all(Array.from({ length: Math.min(jobs, pending.length) }, worker))
@@ -806,7 +868,7 @@ async function runCompiles() {
     process.stderr.write(failures.join('\n'))
     fail('compilation failed')
   }
-  return pending.length
+  return pending.length + pchBuilt
 }
 
 const compiled = await runCompiles()
