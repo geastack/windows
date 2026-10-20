@@ -52,9 +52,9 @@ test('linked hook defaults yield to program and app definitions, and duplicates 
     assert.equal(run.status, 0, run.stderr)
     return { linked: true, lines: run.stdout.split(/\r?\n/).filter(Boolean) }
   }
-  assert.deepEqual(link('defaults', [framework, defaults]).lines, ['lookup 0 0'])
-  assert.deepEqual(link('program', [framework, defaults, program]).lines, ['program defer', 'lookup 1 7'])
-  assert.deepEqual(link('override', [framework, defaults, program, override]).lines, ['program defer', 'lookup 1 42'])
+  assert.deepEqual(link('defaults', [framework, defaults]).lines, ['prepare 1', 'lookup 0 0'])
+  assert.deepEqual(link('program', [framework, defaults, program]).lines, ['program defer', 'prepare 0', 'lookup 1 7'])
+  assert.deepEqual(link('override', [framework, defaults, program, override]).lines, ['program defer', 'prepare 0', 'lookup 1 42'])
   const clash = link('duplicate', [framework, defaults, override, duplicate])
   assert.equal(clash.linked, false)
   assert.match(clash.output, /duplicate symbol: gea_embedded_asset_lookup/)

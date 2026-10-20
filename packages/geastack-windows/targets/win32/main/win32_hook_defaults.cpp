@@ -15,6 +15,9 @@ extern "C" void gea_win32_default_cycle_collection_defer() {}
 
 extern "C" bool gea_win32_default_embedded_asset_lookup(const char *, const unsigned char **, unsigned long *) { return false; }
 
+extern "C" bool gea_win32_default_embedded_assets_prepare() { return true; }
+
 #pragma comment(linker, "/alternatename:gea_cycle_collection_defer_begin=gea_win32_default_cycle_collection_defer")
 #pragma comment(linker, "/alternatename:gea_cycle_collection_defer_end=gea_win32_default_cycle_collection_defer")
 #pragma comment(linker, "/alternatename:gea_embedded_asset_lookup=gea_win32_default_embedded_asset_lookup")
+#pragma comment(linker, "/alternatename:gea_embedded_assets_prepare=gea_win32_default_embedded_assets_prepare")
