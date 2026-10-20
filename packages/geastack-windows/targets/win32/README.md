@@ -24,6 +24,15 @@ Everything lands under the **app project**, never under this package:
 sounds, and `<app>/dist/windows/.generated/<app-id>/` for the generated C++.
 `GEA_WINDOWS_OUTPUT_DIR` moves the tree.
 
+The C++ is generated again only when an input changed since the last
+generation (`.gea-generation.stamp`) or the generation settings differ
+(`.gea-build-env`). The inputs are the app directory's sources, every module
+the last generation compiled (from its module graph, so sources the entry
+imports from outside the app directory, e.g. `../src`, count; a listed module
+that no longer exists forces a new generation), the project's tsconfig and the
+configs it `extends`, and the framework, plugins and compiler. Otherwise the
+build only compiles and links what changed.
+
 Without app metadata the build falls back to the built-in smoke app
 (`main/win32_smoke_app.cpp`), which exercises View / Text / Button / event
 dispatch.
@@ -173,7 +182,7 @@ Typed settings under `gea.targets.windows.build.native` (or `gea.build.native`):
 
 | Setting | Values | Effect |
 | --- | --- | --- |
-| `jobs` | integer, 0 | parallel compiles (0: min(cores, 12); `--jobs` and `GEA_WINDOWS_JOBS` win) |
+| `jobs` | integer, 0 | parallel compiles (0: one per core, at most one per 2 GB of memory; `--jobs` and `GEA_WINDOWS_JOBS` win) |
 | `arch` | `default`, `AVX2`, `AVX512` | `/arch` for every unit |
 | `debugInfo` | boolean | `/Z7` and `/debug` in optimized code; identical-code folding stays on |
 | `lto` | `off`, `thin` | ThinLTO through lld-link |
@@ -182,6 +191,7 @@ Typed settings under `gea.targets.windows.build.native` (or `gea.build.native`):
 | `unoptimizedSources` | pattern | sources built at `/Od` (very large constant-data units) |
 | `pgo`, `pgoProfile` | `off`, `generate`, `use`; path | instrumented build, or one optimized from a merged `.profdata` |
 | `package` | `none`, `zip` | `dist/windows/<Name>-Windows.zip`: the executable, its runtime files and `Resources` in one `<Name>/` folder |
+| `pch` | `true` (default), `false` | the generated program's header (`geatsc-header.txt`'s `program=`, which every generated unit includes first) compiled once as a precompiled header for those units; `GEA_WINDOWS_PCH=0` turns it off for one build |
 
 Patterns are regular expressions over the source path with forward slashes.
 `GEA_WINDOWS_PGO=generate` (or `off`, `use`) overrides `pgo` for one build, e.g.
