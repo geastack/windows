@@ -9,8 +9,6 @@
 // only while the symbol has no definition. A program's definition (weak or
 // not) or an app's replaces the default; two strong definitions remain a
 // duplicate-symbol error.
-#include <cstddef>
-
 extern "C" void gea_win32_default_cycle_collection_defer() {}
 
 extern "C" bool gea_win32_default_embedded_asset_lookup(const char *, const unsigned char **, unsigned long *) { return false; }
