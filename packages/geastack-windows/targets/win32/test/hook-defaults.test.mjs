@@ -43,7 +43,7 @@ test('linked hook defaults yield to program and app definitions, and duplicates 
     return file
   }
   const defaults = object(path.join(targetDir, 'main', 'win32_hook_defaults.cpp'))
-  const [framework, program, override, duplicate] = ['framework', 'program', 'app_override', 'app_duplicate'].map((name) => object(path.join(fixtures, `${name}.cpp`)))
+  const [framework, program, bundle, override, duplicate] = ['framework', 'program', 'bundle_prepare', 'app_override', 'app_duplicate'].map((name) => object(path.join(fixtures, `${name}.cpp`)))
   const link = (name, objects) => {
     const executable = path.join(out, `${name}.exe`)
     const result = spawnSync(lldLink, ['/nologo', `/out:${executable}`, '/subsystem:console', ...objects], { encoding: 'utf8' })
@@ -52,10 +52,14 @@ test('linked hook defaults yield to program and app definitions, and duplicates 
     assert.equal(run.status, 0, run.stderr)
     return { linked: true, lines: run.stdout.split(/\r?\n/).filter(Boolean) }
   }
-  assert.deepEqual(link('defaults', [framework, defaults]).lines, ['lookup 0 0'])
-  assert.deepEqual(link('program', [framework, defaults, program]).lines, ['program defer', 'lookup 1 7'])
-  assert.deepEqual(link('override', [framework, defaults, program, override]).lines, ['program defer', 'lookup 1 42'])
+  assert.deepEqual(link('defaults', [framework, defaults]).lines, ['prepare 1', 'lookup 0 0'])
+  assert.deepEqual(link('program', [framework, defaults, program]).lines, ['program defer', 'prepare 0', 'lookup 1 7'])
+  assert.deepEqual(link('bundle', [framework, defaults, program, bundle]).lines, ['program defer', 'prepare 1', 'lookup 1 7'])
+  assert.deepEqual(link('override', [framework, defaults, program, override]).lines, ['program defer', 'prepare 1', 'lookup 1 42'])
   const clash = link('duplicate', [framework, defaults, override, duplicate])
   assert.equal(clash.linked, false)
   assert.match(clash.output, /duplicate symbol: gea_embedded_asset_lookup/)
+  const prepareClash = link('prepare-duplicate', [framework, defaults, bundle, duplicate])
+  assert.equal(prepareClash.linked, false)
+  assert.match(prepareClash.output, /duplicate symbol: gea_embedded_assets_prepare/)
 })
