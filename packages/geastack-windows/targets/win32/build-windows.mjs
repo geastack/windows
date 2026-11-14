@@ -576,7 +576,8 @@ const optimization = process.env.GEA_WINDOWS_OPT ?? (debug ? '/Od' : '/O2')
 // resolved by the CLI into the build config:
 //   jobs                parallel compiles (0: automatic; --jobs and GEA_WINDOWS_JOBS win)
 //   arch                'default' | 'AVX2' | 'AVX512' instruction set (/arch)
-//   debugInfo           CodeView debug information in optimized code (/Z7, /debug)
+//   debugInfo           CodeView debug information in optimized code: true (/Z7, /debug) or 'lines'
+//                       (-gline-tables-only: functions, inline sites and line tables only, no types or locals)
 //   lto                 'off' | 'thin' (ThinLTO through lld-link)
 //   ltoJobs, ltoCache   ThinLTO backend threads (0: linker default) and cache directory
 //   ltoExcludeSources   sources built as ordinary objects under ThinLTO (a pattern)
@@ -626,7 +627,10 @@ if (nativeSettings.pgo === 'use' && (!pgoProfile || !fs.existsSync(pgoProfile)))
   fail(`native.pgo is 'use' but native.pgoProfile ${pgoProfile ? `names a missing file: ${pgoProfile}` : 'is not set'}; merge a profile with llvm-profdata first`)
 }
 const ltoCache = nativeSettings.lto === 'thin' ? appPath(nativeSettings.ltoCache, 'ltoCache') : ''
-const debugInfo = debug || nativeSettings.debugInfo === true
+const debugInfo = debug || nativeSettings.debugInfo === true || nativeSettings.debugInfo === 'lines'
+// Line tables are what a sampled stack and a crash dump need. Full CodeView types and locals made
+// each object about four times larger and its compile about a third slower in a large program.
+const debugInfoFlag = !debug && nativeSettings.debugInfo === 'lines' ? '-gline-tables-only' : '/Z7'
 const toolchainFlags = [
   ...(nativeSettings.arch !== 'default' ? [`/arch:${nativeSettings.arch}`] : []),
   ...(nativeSettings.lto === 'thin' ? ['-flto=thin'] : []),
@@ -672,7 +676,7 @@ const commonFlags = [
   '/utf-8',
   '/w',
   '-fverify-intermediate-code',
-  ...(debugInfo ? ['/Z7'] : []),
+  ...(debugInfo ? [debugInfoFlag] : []),
   ...toolchainFlags,
   ...defines,
 ]

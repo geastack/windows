@@ -184,7 +184,7 @@ Typed settings under `gea.targets.windows.build.native` (or `gea.build.native`):
 | --- | --- | --- |
 | `jobs` | integer, 0 | parallel compiles (0: one per core, at most one per 2 GB of memory; `--jobs` and `GEA_WINDOWS_JOBS` win) |
 | `arch` | `default`, `AVX2`, `AVX512` | `/arch` for every unit |
-| `debugInfo` | boolean | `/Z7` and `/debug` in optimized code; identical-code folding stays on |
+| `debugInfo` | boolean or `'lines'` | `true`: `/Z7` and `/debug` in optimized code; `'lines'`: `-gline-tables-only`, functions, inline sites and line tables only (smaller objects, faster compiles, still symbolized stacks); identical-code folding stays on |
 | `lto` | `off`, `thin` | ThinLTO through lld-link |
 | `ltoJobs`, `ltoCache` | integer, path | ThinLTO backend threads (0: all), cache directory |
 | `ltoExcludeSources` | pattern | sources built as ordinary objects under ThinLTO |
