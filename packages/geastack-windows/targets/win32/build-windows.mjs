@@ -42,6 +42,7 @@ import {
   resolveRuntimeProviders,
   runtimeStagingPlan,
 } from './native-packages.mjs'
+import { generatorIdentity, newestMtime } from './generation-inputs.mjs'
 
 const targetDir = path.dirname(fileURLToPath(import.meta.url))
 const packageRoot = path.resolve(targetDir, '../..')
@@ -237,26 +238,6 @@ function mark(label) {
 
 // --- generation ------------------------------------------------------------------
 
-function newestMtime(dir, predicate, skip = new Set(['node_modules', 'dist', 'build', '.vite', '.git'])) {
-  let newest = 0
-  const stack = [dir]
-  while (stack.length > 0) {
-    const current = stack.pop()
-    if (!fs.existsSync(current)) continue
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      const full = path.join(current, entry.name)
-      if (entry.isDirectory()) {
-        if (!skip.has(entry.name)) stack.push(full)
-        continue
-      }
-      if (!entry.isFile() || !predicate(entry.name)) continue
-      const mtime = fs.statSync(full).mtimeMs
-      if (mtime > newest) newest = mtime
-    }
-  }
-  return newest
-}
-
 // The newest modification time among the modules of the program the last
 // generation compiled, as its Vite module graph lists them: an app whose entry
 // imports sources outside its own directory (`../src`) has inputs that
@@ -347,18 +328,22 @@ if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
   const signaturePath = path.join(generatedDir, '.gea-build-env')
   // gea.targets.windows.tsconfig: the TypeScript project the compiler reads the program under.
   const tsconfig = appJson?.targetConfig?.windows?.tsconfig ? path.resolve(appDir, appJson.targetConfig.windows.tsconfig) : ''
+  // The packages that generate the C++ (see `generatorIdentity`).
+  const generators = [
+    { name: 'core', root: geaCore, dir: 'scripts', files: /\.mjs$/ },
+    { name: 'geatsc-plugin-gea', root: geaPlugin, dir: 'dist', files: /\.js$/ },
+    ...(windowsPlugin ? [{ name: 'geatsc-plugin-windows-native', root: windowsPlugin, dir: 'dist', files: /\.js$/ }] : []),
+    { name: 'compiler', root: geaCompiler, dir: 'dist', files: /\.js$/ },
+    // The runtime the compiler copies into the generated C++ ships as source next to its dist.
+    { name: 'compiler runtime', root: geaCompiler, dir: path.join('src', 'targets', 'cpp', 'runtime'), files: /\.(?:h|cpp)$/ },
+    { name: 'windows', root: packageRoot, dir: 'dist', files: /\.js$/ },
+  ].map(generatorIdentity)
   const inputsNewest = Math.max(
     newestMtime(appDir, (name) => /\.(?:tsx?|jsx?|mjs|css|json)$/.test(name)),
     // Sources the program imports from outside the app directory, and its project's base configs.
     newestProgramMtime(path.join(generatedDir, 'module-graph', 'gea-module-graph.json')),
     newestTsconfigMtime(tsconfig),
-    newestMtime(path.join(geaCore, 'scripts'), (name) => name.endsWith('.mjs')),
-    newestMtime(path.join(geaPlugin, 'dist'), (name) => name.endsWith('.js')),
-    windowsPlugin ? newestMtime(path.join(windowsPlugin, 'dist'), (name) => name.endsWith('.js')) : 0,
-    newestMtime(path.join(geaCompiler, 'dist'), (name) => name.endsWith('.js')),
-    // The runtime the compiler copies into the generated C++ ships as source next to its dist.
-    newestMtime(path.join(geaCompiler, 'src', 'targets', 'cpp', 'runtime'), (name) => /\.(?:h|cpp)$/.test(name)),
-    newestMtime(path.join(packageRoot, 'dist'), (name) => name.endsWith('.js')),
+    ...generators.map((generator) => generator.newest),
   )
   const translationUnits = buildConfig.settings.compiler?.translationUnits ?? 'balanced'
   // The native toolchain settings do not reach the generated C++; changing
@@ -371,7 +356,16 @@ if (appDir && fs.existsSync(path.join(appDir, appEntry))) {
     cssDevicePixelRatio: buildConfig.cssDevicePixelRatio,
     capabilities: buildConfig.capabilities,
   }
-  const signature = JSON.stringify({ windowsNative, extraPlugins, buildConfig: generationConfig, translationUnits, tsconfig, entry: appEntry, geatsc: process.env.GEA_GEATSC_BIN ?? '' })
+  const signature = JSON.stringify({
+    windowsNative,
+    extraPlugins,
+    buildConfig: generationConfig,
+    translationUnits,
+    tsconfig,
+    entry: appEntry,
+    geatsc: process.env.GEA_GEATSC_BIN ?? '',
+    generators,
+  })
   const stampTime = fs.existsSync(stamp) ? fs.statSync(stamp).mtimeMs : 0
   const fresh =
     fs.existsSync(sourceList) && stampTime >= inputsNewest && fs.existsSync(signaturePath) && fs.readFileSync(signaturePath, 'utf8') === signature
