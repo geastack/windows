@@ -98,6 +98,9 @@ HWND g_nativeRoot = nullptr;
 gea::win32::Toolbar *g_nativeToolbar = nullptr;
 std::function<void(const RECT &)> g_nativeLayout;
 double g_scale = 1.0;
+// The client size the window was created for, in DIPs (window.json or GEA_WINDOWS_WIN_W/H).
+int g_requestedWidth = 0;
+int g_requestedHeight = 0;
 bool g_frameRequested = false;
 bool g_running = true;
 WindowConfig g_config;
@@ -733,6 +736,12 @@ LRESULT CALLBACK mainWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
 		AdjustWindowRectExForDpi(&frame, static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_STYLE)), FALSE, 0, GetDpiForWindow(hwnd));
 		info->ptMinTrackSize.x = frame.right - frame.left;
 		info->ptMinTrackSize.y = frame.bottom - frame.top;
+		// Windows caps a window at about the desktop size; a window asked for more (a 3840x2160 client on a smaller
+		// display) keeps the size it was created for.
+		RECT wanted{0, 0, static_cast<int>(std::lround(g_requestedWidth * g_scale)), static_cast<int>(std::lround(g_requestedHeight * g_scale))};
+		AdjustWindowRectExForDpi(&wanted, static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_STYLE)), FALSE, 0, GetDpiForWindow(hwnd));
+		info->ptMaxTrackSize.x = std::max(info->ptMaxTrackSize.x, wanted.right - wanted.left);
+		info->ptMaxTrackSize.y = std::max(info->ptMaxTrackSize.y, wanted.bottom - wanted.top);
 		return 0;
 	}
 	case WM_DPICHANGED: {
@@ -887,6 +896,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 	int height = g_config.height;
 	if (const char *e = std::getenv("GEA_WINDOWS_WIN_W")) width = std::atoi(e);
 	if (const char *e = std::getenv("GEA_WINDOWS_WIN_H")) height = std::atoi(e);
+	g_requestedWidth = width;
+	g_requestedHeight = height;
 	const UINT dpi = GetDpiForSystem();
 	g_scale = dpi / 96.0;
 	RECT frame{0, 0, static_cast<int>(std::lround(width * g_scale)), static_cast<int>(std::lround(height * g_scale))};
