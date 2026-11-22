@@ -5,8 +5,10 @@
 // hook the layout engine calls for every text node.
 
 #include "win32_font_registry.h"
+#include "win32_prerender.h"
 
 #include "graphics/font.h"
+#include "platform/prerender_fonts.h"
 
 #include <algorithm>
 #include <cctype>
@@ -42,6 +44,7 @@ std::string lowercased(std::string value)
 }
 
 double g_scale = 1.0;
+bool g_prerender_fonts = false;
 
 // Registered TTF bytes by lowercased family, kept alive for the runtime
 // rasterizer (stbtt keeps pointers into them).
@@ -236,6 +239,12 @@ void measureText(const std::wstring &text, HFONT font, int maxWidth, bool single
 	if (outHeight) *outHeight = static_cast<int>(std::ceil((rect.bottom - rect.top) / g_scale));
 }
 
+void usePrerenderFonts()
+{
+	g_prerender_fonts = true;
+	platform::prerender::installFontProvider();
+}
+
 void resetFontCaches()
 {
 	for (auto &entry : fontCache()) DeleteObject(entry.second);
@@ -286,11 +295,23 @@ const std::uint8_t *lookupRuntimeTtfFontForFamily(int familyId, unsigned long *l
 
 }  // namespace gea::framework::graphics::generated
 
+extern "C" void gea_windows_begin_runtime_fonts()
+{
+	gea::platform::prerender::beginRuntimeFonts();
+}
+
+extern "C" bool gea_windows_register_runtime_font(const char *path, const char *family)
+{
+	return gea::platform::prerender::registerRuntimeFont(path, family);
+}
+
+extern "C" void gea_windows_commit_runtime_fonts() {}
+
 // Host text measurement: the layout engine re-measures every text node on
 // every layout pass, so results are memoized on their exact inputs.
 extern "C" bool gea_host_measure_text(const char *text, int maxWidth, int fontId, int fontSize, int *outWidth, int *outHeight)
 {
-	if (!outWidth || !outHeight) return false;
+	if (gea::win32::g_prerender_fonts || !outWidth || !outHeight) return false;
 	if (!text || !text[0]) {
 		*outWidth = 0;
 		*outHeight = 0;

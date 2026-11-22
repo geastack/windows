@@ -295,17 +295,16 @@ void paintCanvasNode(HDC hdc, const RECT &rect, int nodeId)
 	auto &tree = Tree::instance();
 	const auto *canvas = tree.canvas(nodeId);
 	if (!canvas) return;
-	const std::uint16_t *source = canvas->pixels();
+	const auto *source = canvas->pixels();
 	const int width = canvas->width();
 	const int height = canvas->height();
 	if (!source || width <= 0 || height <= 0) return;
 	static std::vector<std::uint32_t> scratch;
 	scratch.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
 	for (int i = 0; i < width * height; i++) {
-		int r = 0, g = 0, b = 0;
-		gea::framework::graphics::pixel::unpackRgb565(source[i], &r, &g, &b);
-		scratch[static_cast<size_t>(i)] = (static_cast<std::uint32_t>((r * 255 + 15) / 31) << 16) | (static_cast<std::uint32_t>((g * 255 + 31) / 63) << 8) |
-		                                  static_cast<std::uint32_t>((b * 255 + 15) / 31);
+		const auto color = colorFromStyle(source[i]);
+		scratch[static_cast<size_t>(i)] =
+			(static_cast<std::uint32_t>(color.r) << 16) | (static_cast<std::uint32_t>(color.g) << 8) | static_cast<std::uint32_t>(color.b);
 	}
 	BITMAPINFO info{};
 	info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);

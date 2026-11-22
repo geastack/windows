@@ -64,6 +64,13 @@ metadata the build produces the smoke app.
 | `GEA_WINDOWS_TIMINGS=1` | Print per-phase timings. |
 | `GEA_CPP_TRANSLATION_UNITS` | Generated unit layout (default `balanced`). |
 
+Headless prerendering uses the same executable and paints into a memory
+framebuffer before any window initialization. Build with
+`GEA_WINDOWS_PRERENDER_RGBA=1` for full-color captures with software text rendering. Invoke the executable
+with `--gea-prerender <out> <width> <height> <dpr> <fps> <timestamp-ms>` for one
+PNG, or with `--gea-prerender-worker` to send newline-delimited capture requests
+over stdin.
+
 Runtime verification hooks: `GEA_WINDOWS_VERIFY_ONCE=1`, `GEA_WINDOWS_SCREENSHOT=<png>`
 (+ `GEA_WINDOWS_SCREENSHOT_FRAME`, `GEA_WINDOWS_SCREENSHOT_STAY`),
 `GEA_WINDOWS_SYNTH_INPUT`, `GEA_WINDOWS_SYNTH_CLICK`, `GEA_WINDOWS_LAYOUT_DUMP`,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "win32_image_bridge.h"
+#include "win32_color.h"
 
 #include "image.h"
 #include "pixel.h"
@@ -33,7 +34,7 @@ HBITMAP bitmapForImageId(int imageId, int *outWidth, int *outHeight)
 	auto &store = ImageStore::instance();
 	const int width = store.width(imageId);
 	const int height = store.height(imageId);
-	const std::uint16_t *source = store.currentPixels(imageId);
+	const auto *source = store.currentPixels(imageId);
 	const std::uint8_t *alpha = store.currentAlpha(imageId);
 	if (width <= 0 || height <= 0 || !source) return nullptr;
 	CachedBitmap &entry = cache()[imageId];
@@ -51,14 +52,12 @@ HBITMAP bitmapForImageId(int imageId, int *outWidth, int *outHeight)
 		auto *dst = static_cast<std::uint8_t *>(info.bmBits);
 		const int count = width * height;
 		for (int i = 0; i < count; i++) {
-			int r = 0, g = 0, b = 0;
-			pixel::unpackRgb565(source[i], &r, &g, &b);
-			const int a = alpha ? alpha[i] : 255;
+			const auto color = colorFromStyle(source[i], alpha ? alpha[i] : 255);
 			// Premultiplied BGRA for AlphaBlend.
-			dst[i * 4 + 0] = static_cast<std::uint8_t>(((b * 255 + 15) / 31) * a / 255);
-			dst[i * 4 + 1] = static_cast<std::uint8_t>(((g * 255 + 31) / 63) * a / 255);
-			dst[i * 4 + 2] = static_cast<std::uint8_t>(((r * 255 + 15) / 31) * a / 255);
-			dst[i * 4 + 3] = static_cast<std::uint8_t>(a);
+			dst[i * 4 + 0] = static_cast<std::uint8_t>(color.b * color.a / 255);
+			dst[i * 4 + 1] = static_cast<std::uint8_t>(color.g * color.a / 255);
+			dst[i * 4 + 2] = static_cast<std::uint8_t>(color.r * color.a / 255);
+			dst[i * 4 + 3] = color.a;
 		}
 		entry.pixels = source;
 		entry.frame = frame;
