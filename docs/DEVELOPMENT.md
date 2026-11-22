@@ -29,6 +29,7 @@ To test an unreleased change, link that one checkout into the app's
 
 ```sh
 cd packages/geastack-windows
+npm ci
 npm run typecheck
 npm run build        # tsc, then scripts/generate.mjs rewrites generated/ + runtime/
 ```

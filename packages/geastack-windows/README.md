@@ -21,14 +21,21 @@ The Windows target for GeaStack apps, in one package:
 ```json
 {
   "dependencies": { "@geastack/windows": "^0.1.0" },
-  "gea": { "targets": { "windows": true } }
+  "devDependencies": { "@geastack/cli": "^0.1.116" },
+  "gea": { "id": "my-app", "entry": "index.tsx", "targets": { "windows": true } }
 }
 ```
 
+`@geastack/cli` provides the `gea` command; it is not a dependency of this
+package. From the app folder:
+
 ```bash
-gea build --target windows
-gea run --target windows
+npx gea build --target windows
+npx gea run --target windows
 ```
+
+The build driver can also be run directly from the app folder:
+`node node_modules/@geastack/windows/targets/win32/build-windows.mjs <app-id> [--run]`.
 
 A Windows-native app (`"runtime": "windows-native"`) builds its UI from the
 Controls classes instead of gea components and adds
@@ -50,7 +57,7 @@ Windows 10 or later, LLVM (clang-cl, lld-link, llvm-rc) either standalone or
 as the "C++ Clang tools for Windows" component of Visual Studio Build Tools,
 the MSVC headers and a Windows SDK. `build-windows.mjs` finds them; set
 `GEA_WINDOWS_CLANG_CL` / `GEA_WINDOWS_LLD_LINK` to point at a specific
-toolchain.
+toolchain. Node.js 22 or later for `@geastack/cli`.
 
 ## Layout
 

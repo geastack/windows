@@ -21,36 +21,46 @@ bindings.
 ## Quick Start
 
 In an app that declares `"windows": true` under `gea.targets` and depends on
-`@geastack/windows`:
+`@geastack/windows` and the `gea` CLI (`@geastack/cli` is a separate package;
+`npx gea` does not fetch it on demand):
 
 ```sh
+npm install @geastack/windows
+npm install --save-dev @geastack/cli
 npx gea build --target windows
-npx gea run --target windows
+npx gea run --target windows       # build, then launch the .exe
 ```
 
-Or drive the target directly from the package:
+Or run the build driver directly from the app folder (it builds the app in
+the current directory; `--run` launches it afterwards):
 
 ```sh
-node packages/geastack-windows/targets/win32/build-windows.mjs <app-id> --run
+node node_modules/@geastack/windows/targets/win32/build-windows.mjs <app-id> --run
 ```
 
-Build the TypeScript packages from their folders:
+To work on this repository, install and build the TypeScript packages from
+their folders, then run their tests:
 
 ```sh
-cd packages/geastack-windows && npm run build      # tsc + regenerate generated/ and runtime/
-cd packages/geatsc-plugin-windows-native && npm run build
+cd packages/geastack-windows
+npm ci && npm run build && npm test      # tsc + regenerate generated/ and runtime/
+cd ../geatsc-plugin-windows-native
+npm ci && npm run build && npm test
 ```
 
 ## Dependencies
 
 - clang-cl and lld-link (LLVM 17+, standalone or the Visual Studio "C++ Clang
   tools for Windows" component). MSVC's `cl.exe` cannot compile the framework's
-  weak-symbol hooks.
+  weak-symbol hooks. `llvm-rc` (or `rc.exe`) from the same toolchain embeds the
+  app icon and manifest; without one the build links without them.
 - Visual Studio Build Tools with the MSVC C++ toolset and a Windows 10/11 SDK,
   for the standard library and platform headers.
-- Node.js 22+.
-- The rest of the stack from npm: `@geastack/core`, `@geastack/compiler`,
-  `@geastack/geatsc-plugin-gea` and the CLI, installed in the app being built.
+- Node.js 22+ (required by `@geastack/cli`; the build driver alone runs on
+  the 20.19+ that `@geastack/windows` declares).
+- The rest of the stack from npm: `@geastack/windows` brings `@geastack/core`,
+  `@geastack/compiler` and `@geastack/geatsc-plugin-gea`; `@geastack/cli` must
+  be installed in the app separately.
 
 ## Documentation
 

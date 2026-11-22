@@ -11,9 +11,16 @@ target positions windows and paints.
 
 ## Build
 
-    node targets/win32/build-windows.mjs <app-id> [--run]
+From an app that depends on `@geastack/windows` and `@geastack/cli` and
+declares `"windows": true` under `gea.targets`, in the app folder:
 
-or, from an app that depends on `@geastack/windows`, `gea build --target windows`.
+    npx gea build --target windows
+    npx gea run --target windows
+
+or run the build driver directly from the app folder (it builds the app in the
+current directory):
+
+    node node_modules/@geastack/windows/targets/win32/build-windows.mjs <app-id> [--run] [--clean] [--debug] [--jobs N] [--verbose]
 
 ## Where the build writes
 
