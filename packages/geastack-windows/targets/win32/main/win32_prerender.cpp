@@ -9,6 +9,12 @@
 #include "display.h"
 #include "host/timers.h"
 #include "platform/prerender_worker.h"
+#if __has_include("platform/prerender_video.h")
+#include "platform/prerender_video.h"
+#define GEA_WIN32_PRERENDER_VIDEO 1
+#else
+#define GEA_WIN32_PRERENDER_VIDEO 0
+#endif
 #include "ui/style.h"
 #include "ui/tree_internal.h"
 
@@ -102,8 +108,11 @@ int runPrerenderCommand(int argc, wchar_t **argv)
 			writePrerenderPng(request);
 		});
 	}
-	if (argc != 8) {
-		std::fputs("Expected --gea-prerender <out> <width> <height> <dpr> <fps> <timestamp-ms>\n", stderr);
+	const bool video = argc > 1 && std::wcscmp(argv[1], L"--gea-prerender-video") == 0;
+	if (argc != (video ? 9 : 8)) {
+		std::fputs(video
+		    ? "Expected --gea-prerender-video - <width> <height> <dpr> <fps> <start-ms> <end-ms>\n"
+		    : "Expected --gea-prerender <out> <width> <height> <dpr> <fps> <timestamp-ms>\n", stderr);
 		return 2;
 	}
 
@@ -123,6 +132,21 @@ int runPrerenderCommand(int argc, wchar_t **argv)
 
 	request.width = static_cast<int>(width);
 	request.height = static_cast<int>(height);
+	if (video) {
+#if GEA_WIN32_PRERENDER_VIDEO
+		const double end = parseNumber(argv[8]);
+		if (!(end > timestamp && end <= INT_MAX && std::trunc(end) == end))
+			throw std::invalid_argument("Invalid video time range");
+		platform::prerender::VideoFrames stream(request.width, request.height);
+		platform::prerender::VideoClock clock(static_cast<int>(fps));
+		loadPage(request);
+		platform::prerender::streamVideoFrames(stream, static_cast<int>(fps),
+			static_cast<int>(timestamp), static_cast<int>(end), paintFrame);
+		return 0;
+#else
+		throw std::runtime_error("This build uses a Gea Core version without prerender video support");
+#endif
+	}
 	loadPage(request);
 	const int frameRate = static_cast<int>(fps);
 	const int targetMs = static_cast<int>(timestamp);
