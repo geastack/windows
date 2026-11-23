@@ -15,7 +15,16 @@ extern "C" bool gea_win32_default_embedded_asset_lookup(const char *, const unsi
 
 extern "C" bool gea_win32_default_embedded_assets_prepare() { return true; }
 
+namespace gea::platform::display {
+struct DisplayFlushRect;
+}
+
+extern "C" void gea_win32_default_display_prepare_repaint(const gea::platform::display::DisplayFlushRect *, int) {}
+
+
 #pragma comment(linker, "/alternatename:gea_cycle_collection_defer_begin=gea_win32_default_cycle_collection_defer")
 #pragma comment(linker, "/alternatename:gea_cycle_collection_defer_end=gea_win32_default_cycle_collection_defer")
 #pragma comment(linker, "/alternatename:gea_embedded_asset_lookup=gea_win32_default_embedded_asset_lookup")
 #pragma comment(linker, "/alternatename:gea_embedded_assets_prepare=gea_win32_default_embedded_assets_prepare")
+
+#pragma comment(linker, "/alternatename:gea_display_prepare_repaint=gea_win32_default_display_prepare_repaint")

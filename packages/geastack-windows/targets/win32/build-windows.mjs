@@ -93,12 +93,12 @@ function resolvePackage(name, { optional = false, siblings = [] } = {}) {
   return fail(`cannot resolve ${name} from ${projectDir} or ${packageRoot} -- run npm install in the app`)
 }
 
-const geaCore = resolvePackage('@geastack/core')
+const geaCore = process.env.GEA_CORE || resolvePackage('@geastack/core')
 const geaHost = process.env.GEA_HOST_DIR || resolvePackage('@geastack/host', { siblings: [path.join(geaCore, '../host')] })
 const geaEngine = process.env.GEA_ENGINE_DIR || resolvePackage('@geastack/engine', { siblings: [path.join(geaCore, '../engine')] })
 const geaElements = process.env.GEA_ELEMENTS_DIR || resolvePackage('@geastack/elements', { siblings: [path.join(geaCore, '../elements')] })
 const geaGeaos = process.env.GEA_GEAOS_PACKAGE_DIR || resolvePackage('@geastack/geaos', { siblings: [path.join(geaCore, '../geaos')] })
-const geaCompiler = resolvePackage('@geastack/compiler')
+const geaCompiler = process.env.GEA_COMPILER || resolvePackage('@geastack/compiler')
 const geaPlugin = resolvePackage('@geastack/geatsc-plugin-gea', { siblings: [path.join(geaCore, '../geatsc-plugin-gea')] })
 const windowsPlugin = resolvePackage('@geastack/geatsc-plugin-windows-native', {
   optional: true,
@@ -475,6 +475,7 @@ const includeDirs = [
   path.join(targetDir, 'include'),
   path.join(targetDir, 'main'),
   generatedDir,
+  path.join(geaCompiler, 'src', 'targets', 'cpp', 'runtime'),
   ...manifestQuery('include-flags').map((flagText) => flagText.replace(/^-I/, '')),
 ]
 if (appDir) includeDirs.push(appDir, path.join(appDir, 'native'))
@@ -497,6 +498,7 @@ const cSources = [...manifestQuery('c-sources'), path.join(targetDir, 'main', 'w
 const cxxSources = [
   ...manifestQuery('cxx-sources').filter((source) => !excludedFramework.test(source.replace(/\\/g, '/'))),
   path.join(geaCore, 'gea_app_entry.cpp'),
+  path.join(geaCore, 'prerender_worker.cpp'),
 ]
 if (fs.existsSync(path.join(geaGeaos, 'resident_apps.cpp'))) cxxSources.push(path.join(geaGeaos, 'resident_apps.cpp'))
 cxxSources.push(
@@ -631,6 +633,7 @@ const toolchainFlags = [
   ...(nativeSettings.pgo === 'generate' ? ['-fprofile-instr-generate'] : []),
   ...(pgoProfile ? [`-fprofile-instr-use=${pgoProfile}`, '-Wno-profile-instr-out-of-date', '-Wno-profile-instr-unprofiled'] : []),
 ]
+const prerenderRgba = process.env.GEA_WINDOWS_PRERENDER_RGBA === '1'
 const defines = [
   '/DNOMINMAX',
   '/DUNICODE',
@@ -648,6 +651,13 @@ const defines = [
   ...(generatedParallelRuntime ? ['/DGEA_RUNTIME_PARALLEL=1'] : []),
 ]
 defines.push(...nativeDefineFlags({ nativePackages, runtimeProviders }))
+if (prerenderRgba) {
+  defines.push(
+    '/DGEA_EMBEDDED_PIXEL_FORMAT=GEA_PIXEL_RGBA8888',
+    // The software document renderer uses this path for runtime TTFs as well as baked atlases.
+    '/DGEA_EMBEDDED_HAS_GENERATED_FONTS=1',
+  )
+}
 // The app's gea.defines, as resolved by the CLI, apply to the whole build.
 for (const define of buildConfig.defines ?? appJson?.defines ?? []) {
   if (typeof define === 'string' && define) defines.push(`/D${define}`)
@@ -665,7 +675,8 @@ const commonFlags = [
   '/c',
   optimization,
   '/EHsc',
-  '/MD',
+  // Downloadable headless executables carry their CRT. Desktop builds can share it.
+  prerenderRgba ? '/MT' : '/MD',
   '/bigobj',
   '/utf-8',
   '/w',

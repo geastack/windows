@@ -4,16 +4,23 @@
 // single-threaded implementation the macOS target uses: runFrame calls the
 // callback, the event queue is inert.
 #include "services/frame_scheduler.h"
+#include "win32_prerender.h"
 
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
 
+#include <atomic>
+
 namespace {
+
+std::atomic<int> g_prerenderTime{-1};
 
 int monotonicMillis()
 {
+	const int captureTime = g_prerenderTime.load(std::memory_order_relaxed);
+	if (captureTime >= 0) return captureTime;
 	static LARGE_INTEGER frequency = [] {
 		LARGE_INTEGER value{};
 		QueryPerformanceFrequency(&value);
@@ -32,6 +39,11 @@ int monotonicMillis()
 int g_frame_interval_ms = gea::framework::services::FrameScheduler::kDefaultFrameIntervalMs;
 
 }  // namespace
+
+void gea::win32::setPrerenderTime(int timeMs)
+{
+	g_prerenderTime.store(timeMs, std::memory_order_relaxed);
+}
 
 extern "C" int gea_embedded_now_ms(void)
 {

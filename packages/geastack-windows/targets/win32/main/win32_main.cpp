@@ -30,6 +30,7 @@
 #include "win32_native_shell.h"
 #include "win32_press_bridge.h"
 #include "win32_renderer.h"
+#include "win32_prerender.h"
 
 #include <dwmapi.h>
 #include <gdiplus.h>
@@ -45,6 +46,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #pragma comment(lib, "dwmapi.lib")
@@ -855,8 +857,15 @@ void setNativeLayoutCallback(std::function<void(const RECT &)> callback)
 
 }  // namespace gea::win32
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR commandLine, int)
 {
+	const std::wstring_view arguments(commandLine);
+	if (arguments == L"--gea-prerender-worker" || arguments == L"--gea-prerender" ||
+	    arguments.starts_with(L"--gea-prerender ") || arguments.starts_with(L"--gea-prerender	")) {
+		gea::win32::registerFontDirectory(resourcesDirectory() + L"\\Fonts");
+		return gea::win32::runPrerender();
+	}
+
 	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 	CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 	// A console-attached parent (the build's --run, a terminal) sees stderr and
