@@ -21,9 +21,9 @@
 // The project is the directory this runs in -- `gea build` starts it in the
 // app's own folder. Environment:
 // GEA_EXTRA_GEATSC_PLUGINS (path-delimited compiler plugins), GEA_CLI_BIN,
-// GEA_GEATSC_BIN, GEA_WINDOWS_CLANG_CL, GEA_WINDOWS_LLD_LINK, GEA_WINDOWS_JOBS,
-// GEA_WINDOWS_OPT (/O2), GEA_WINDOWS_PGO (overrides native.pgo). Translation-unit
-// layout comes from package.json.
+// GEA_COMPILER_DIR (the compiler package), GEA_GEATSC_BIN, GEA_WINDOWS_CLANG_CL,
+// GEA_WINDOWS_LLD_LINK, GEA_WINDOWS_JOBS, GEA_WINDOWS_OPT (/O2), GEA_WINDOWS_PGO
+// (overrides native.pgo). Translation-unit layout comes from package.json.
 
 import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
@@ -98,7 +98,9 @@ const geaHost = process.env.GEA_HOST_DIR || resolvePackage('@geastack/host', { s
 const geaEngine = process.env.GEA_ENGINE_DIR || resolvePackage('@geastack/engine', { siblings: [path.join(geaCore, '../engine')] })
 const geaElements = process.env.GEA_ELEMENTS_DIR || resolvePackage('@geastack/elements', { siblings: [path.join(geaCore, '../elements')] })
 const geaGeaos = process.env.GEA_GEAOS_PACKAGE_DIR || resolvePackage('@geastack/geaos', { siblings: [path.join(geaCore, '../geaos')] })
-const geaCompiler = process.env.GEA_COMPILER || resolvePackage('@geastack/compiler')
+// GEA_COMPILER_DIR is the name the CLI exports to every target build (and the one the
+// other targets read); GEA_COMPILER is this script's older spelling, still honoured.
+const geaCompiler = process.env.GEA_COMPILER_DIR || process.env.GEA_COMPILER || resolvePackage('@geastack/compiler')
 const geaPlugin = resolvePackage('@geastack/geatsc-plugin-gea', { siblings: [path.join(geaCore, '../geatsc-plugin-gea')] })
 const windowsPlugin = resolvePackage('@geastack/geatsc-plugin-windows-native', {
   optional: true,
