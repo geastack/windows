@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0
- * The gea_embedded_apps_* C API the framework's generated app code calls; the
- * apps.h header is C++-only, so the prototypes are declared inline here. */
+ * The gea_embedded_apps_* C API the framework's generated app code calls. It
+ * has no C header, so the prototypes are declared inline here. */
 #include <string.h>
 
 int gea_embedded_apps_launch(const char *app_id);
